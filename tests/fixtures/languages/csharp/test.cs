@@ -16,8 +16,8 @@ namespace Greetings {
         }
     }
 
-    public class FormalGreeter : IGreeter {
-        private const string PREFIX = "Good day";
+    public class CasualGreeter : IGreeter {
+        private const string PREFIX = "Hey";
         private static readonly int MAX_AGE = 150;
 
         public string Greet(string name) {
@@ -31,7 +31,7 @@ namespace Greetings {
 
     public class Program {
         static void Main() {
-            var greeter = new FormalGreeter();
+            var greeter = new CasualGreeter();
             var person = new Person("World", 42);
             Console.WriteLine(greeter.GreetPerson(person));
         }
