@@ -56,22 +56,15 @@ def check_config_files_for_yes(config_files: Any) {
                     for line in f {
                         if line.strip().startswith('yes:') {
                             print('Configuration error detected.');
-                            print(
-                                f"'The file '{config_file}" contains a line starting with 'yes:'""
-                            );
-                            print(
-                                "Please replace 'yes:' with 'yes-always:' in this file."
-                            );
+                            print(f"The file '{config_file}' contains a line starting with 'yes:'");
+                            print("Please replace 'yes:' with 'yes-always:' in this file.");
                             found = True;
                         }
                     }
                 }
-                }
-                Exception
-                    except
-                    {
-                    ;
-                    }
+            } except Exception {
+                ;
+            }
         }
     }
     return found;
@@ -143,30 +136,21 @@ def setup_git(git_root: Any, io: Any) {
     }
     repo = None;
     if git_root {
-
-            try
-            {
+        try {
             repo = git.Repo(git_root);
-            }
-            ANY_GIT_ERROR
-                except
-                {
-                ;
-                }
-    } elif (cwd == Path.home()) { io.tool_warning(
-        "You should probably run aider in your project's directory, not your home dir."
-    ); return;  } elif (cwd and io.confirm_ask(
-        "No git repo found, create one to track aider's changes (recommended)?"
-    )
-    ) {
+        } except ANY_GIT_ERROR {
+            ;
+        }
+    } elif (cwd == Path.home()) {
+        io.tool_warning("You should probably run aider in your project's directory, not your home dir.");
+        return;
+    } elif (cwd and io.confirm_ask("No git repo found, create one to track aider's changes (recommended)?")) {
         git_root = str(cwd.resolve());
         repo = make_new_repo(git_root, io);
     }
-    not repo
-        if
-        {
+    if not repo {
         return;
-        }
+    }
     try {
         user_name = (repo.git.config('--get', 'user.name') or None );
     } except git.exc.GitCommandError {
@@ -200,72 +184,62 @@ def setup_git(git_root: Any, io: Any) {
 
 
 def check_gitignore(git_root: Any, io: Any, ask: Any = True) {
-    not git_root
-        if
-        {
+    if not git_root {
         return;
-        }
+    }
 
-        try
-        {
+    try {
         repo = git.Repo(git_root);
         patterns_to_add = [];
         env_path = (Path(git_root) / '.env');
         gitignore_file = (Path(git_root) / '.gitignore');
         if gitignore_file.exists() {
-
-                try
-                {
+            try {
                 content = io.read_text(gitignore_file);
-                }
-                except OSError as e { io.tool_error(f"'Error when trying to read '{gitignore_file}': '{e}"); return;  }
-
-                if
-                (content is None)
-                {
+            } except OSError as e {
+                io.tool_error(f"Error when trying to read '{gitignore_file}': {e}");
                 return;
-                } if not content.endswith('\n') {
+            }
+
+            if (content is None) {
+                return;
+            }
+            if not content.endswith('\n') {
                 content += '\n';
             }
-        }
-            else
-            {
+        } else {
             content = '';
-            }
-
         }
-        ANY_GIT_ERROR
-            except
-            {
-            return;
-            }
+    } except ANY_GIT_ERROR {
+        return;
+    }
+
     if not repo.ignored('.aider') {
         patterns_to_add.append('.aider*');
-    } if (env_path.exists() and not repo.ignored('.env') ) {
+    }
+    if (env_path.exists() and not repo.ignored('.env')) {
         patterns_to_add.append('.env');
-    } not patterns_to_add
-        if
-        {
+    }
+    if not patterns_to_add {
         return;
+    }
+    if ask {
+        io.tool_output('You can skip this check with --no-gitignore');
+        if not io.confirm_ask(f"Add {', '.join(patterns_to_add)} to .gitignore (recommended)?") {
+            return;
         }
-    if ask { io.tool_output('You can skip this check with --no-gitignore'); not io.confirm_ask(
-        f"'Add '{', '.join(patterns_to_add)}' to .gitignore (recommended)?'"
-    )
-        if
-        {
-        return;
-        } }
+    }
     content += ('\n'.join(patterns_to_add) + '\n');
     try {
         io.write_text(gitignore_file, content);
-        io.tool_output(f"'Added '{', '.join(patterns_to_add)}' to .gitignore'");
+        io.tool_output(f"Added {', '.join(patterns_to_add)} to .gitignore");
     } except OSError as e {
-        io.tool_error(f"'Error when trying to write to '{gitignore_file}': '{e}");
+        io.tool_error(f"Error when trying to write to '{gitignore_file}': {e}");
         io.tool_output(
             'Try running with appropriate permissions or manually add these patterns to .gitignore:'
         );
         for pattern in patterns_to_add {
-            io.tool_output(f"'  '{pattern}");
+            io.tool_output(f"  {pattern}");
         }
     }
 }
