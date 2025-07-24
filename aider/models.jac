@@ -381,6 +381,7 @@ class Model(ModelSettings) {
     }
 
     def apply_generic_model_settings(self: Model, model: Any) {
+        if ('codex' in model) { self.use_temperature = False; return;  }
         if ('/o3-mini' in model) { self.edit_format = 'diff'; self.use_repo_map = True; self.use_temperature =
             False; self.system_prompt_prefix = 'Formatting re-enabled. '; self.system_prompt_prefix =
             'Formatting re-enabled. '; if ('reasoning_effort' not in self.accepts_settings) {
