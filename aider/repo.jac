@@ -1,0 +1,576 @@
+import contextlib;
+import os;
+import time;
+import from pathlib { Path, PurePosixPath }
+
+
+with entry {
+
+        try
+        {
+        import git;
+        ANY_GIT_ERROR =
+
+            [git.exc.ODBError,
+            git.exc.GitError,
+            git.exc.InvalidGitRepositoryError,
+            git.exc.GitCommandNotFound];
+        }
+        except ImportError { git = None; }
+}
+
+
+import pathspec;
+
+import from aider { prompts, utils }
+
+import from .dump { dump }
+import from .waiting { WaitingSpinner }
+
+
+with entry {
+    ANY_GIT_ERROR +=
+    [OSError,
+    IndexError,
+    BufferError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    AssertionError,
+    TimeoutError];
+    ANY_GIT_ERROR = <>tuple(ANY_GIT_ERROR);
+}
+
+
+"""Temporarily set a Git environment variable."""
+@ contextlib.contextmanager
+
+ def set_git_env(var_name: Any, value: Any, original_value: Any) {
+    os.environ[ var_name ] = value;
+    try {
+        yield ;;
+    }
+        finally
+        {
+        if (original_value is not None) {
+            os.environ[ var_name ] = original_value;
+        } elif (var_name in os.environ) {
+            del (os.environ[ var_name ], ) ;
+        }
+        }
+}
+
+
+class GitRepo {
+    with entry {
+        repo = None;
+        aider_ignore_file = None;
+        aider_ignore_spec = None;
+        aider_ignore_ts = 0;
+        aider_ignore_last_check = 0;
+        subtree_only = False;
+        ignore_file_cache = {};
+        git_repo_error = None;
+    }
+
+    def init(
+        self: GitRepo,
+        io: Any,
+        fnames: Any,
+        git_dname: Any,
+        aider_ignore_file: Any = None,
+        models: Any = None,
+        attribute_author: Any = True,
+        attribute_committer: Any = True,
+        attribute_commit_message_author: Any = False,
+        attribute_commit_message_committer: Any = False,
+        commit_prompt: Any = None,
+        subtree_only: Any = False,
+        git_commit_verify: Any = True,
+        attribute_co_authored_by: Any = False
+    ) {
+        self.io = io;
+        self.models = models;
+        self.normalized_path = {};
+        self.tree_files = {};
+        self.attribute_author = attribute_author;
+        self.attribute_committer = attribute_committer;
+        self.attribute_commit_message_author = attribute_commit_message_author;
+        self.attribute_commit_message_committer = attribute_commit_message_committer;
+        self.attribute_co_authored_by = attribute_co_authored_by;
+        self.commit_prompt = commit_prompt;
+        self.subtree_only = subtree_only;
+        self.git_commit_verify = git_commit_verify;
+        self.ignore_file_cache = {};
+        if git_dname {
+            check_fnames = [git_dname];
+        } elif fnames {
+            check_fnames = fnames;
+        }
+            else
+            {
+            check_fnames = ['.'];
+            }
+
+        repo_paths = [];
+        for fname in check_fnames { fname = Path(fname); fname = fname.resolve(); if (not fname.exists() and fname.parent.exists() ) {
+            fname = fname.parent;
+        } }
+        num_repos = len(<>set(repo_paths));
+
+            if
+            (num_repos == 0)
+            {
+            raise FileNotFoundError ;
+            }
+        if (num_repos > 1) {
+            self.io.tool_error('Files are in different git repos.');
+        raise FileNotFoundError ; }
+        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitDB);
+        self.root = utils.safe_abs_path(self.repo.working_tree_dir);
+        if aider_ignore_file {
+            self.aider_ignore_file = Path(aider_ignore_file);
+        }
+    }
+
+    """\n        Commit the specified files or all dirty files if none are specified.\n\n        Args:\n            fnames (list, optional): List of filenames to commit. Defaults to None (commit all\n                                     dirty files).\n            context (str, optional): Context for generating commit message. Defaults to None.\n            message (str, optional): Explicit commit message. Defaults to None (generate message).\n            aider_edits (bool, optional): Whether the changes were made by Aider. Defaults to False.\n                                          This affects attribution logic.\n            coder (Coder, optional): The Coder instance, used for config and model info.\n                                     Defaults to None.\n\n        Returns:\n            tuple(str, str) or None: The commit hash and commit message if successful,\n                                     else None.\n\n        Attribution Logic:\n        ------------------\n        This method handles Git commit attribution based on configuration flags and whether\n        Aider generated the changes (`aider_edits`).\n\n        Key Concepts:\n        - Author: The person who originally wrote the code changes.\n        - Committer: The person who last applied the commit to the repository.\n        - aider_edits=True: Changes were generated by Aider (LLM).\n        - aider_edits=False: Commit is user-driven (e.g., /commit manually staged changes).\n        - Explicit Setting: A flag (--attribute-...) is set to True or False\n          via command line or config file.\n        - Implicit Default: A flag is not explicitly set, defaulting to None in args, which is\n          interpreted as True unless overridden by other logic.\n\n        Flags:\n        - --attribute-author: Modify Author name to "User Name (aider)".\n        - --attribute-committer: Modify Committer name to "User Name (aider)".\n        - --attribute-co-authored-by: Add\n          "Co-authored-by: aider (<model>) <aider@aider.chat>" trailer to commit message.\n\n        Behavior Summary:\n\n        1. When aider_edits = True (AI Changes):\n           - If --attribute-co-authored-by=True:\n             - Co-authored-by trailer IS ADDED.\n             - Author/Committer names are NOT modified by default (co-authored-by takes precedence).\n             - EXCEPTION: If --attribute-author/--attribute-committer is EXPLICITLY True, the\n               respective name IS modified (explicit overrides precedence).\n           - If --attribute-co-authored-by=False:\n             - Co-authored-by trailer is NOT added.\n             - Author/Committer names ARE modified by default (implicit True).\n             - EXCEPTION: If --attribute-author/--attribute-committer is EXPLICITLY False,\n               the respective name is NOT modified.\n\n        2. When aider_edits = False (User Changes):\n           - --attribute-co-authored-by is IGNORED (trailer never added).\n           - Author name is NEVER modified (--attribute-author ignored).\n           - Committer name IS modified by default (implicit True, as Aider runs `git commit`).\n           - EXCEPTION: If --attribute-committer is EXPLICITLY False, the name is NOT modified.\n\n        Resulting Scenarios:\n        - Standard AI edit (defaults): Co-authored-by=False -> Author=You(aider),\n          Committer=You(aider)\n        - AI edit with Co-authored-by (default): Co-authored-by=True -> Author=You,\n          Committer=You, Trailer added\n        - AI edit with Co-authored-by + Explicit Author: Co-authored-by=True,\n          --attribute-author -> Author=You(aider), Committer=You, Trailer added\n        - User commit (defaults): aider_edits=False -> Author=You, Committer=You(aider)\n        - User commit with explicit no-committer: aider_edits=False,\n          --no-attribute-committer -> Author=You, Committer=You\n        """
+    def commit(
+        self: GitRepo,
+        fnames: Any = None,
+        context: Any = None,
+        message: Any = None,
+        aider_edits: Any = False,
+        coder: Any = None
+    ) {
+
+            if
+            (not fnames and not self.repo.is_dirty() )
+            {
+            return;
+            }
+        diffs = self.get_diffs(fnames);
+        not diffs
+            if
+            {
+            return;
+            }
+        if message {
+            commit_message = message;
+        }
+            else
+            {
+            user_language = None;
+            if coder {
+                user_language = coder.commit_language;
+            if not user_language {
+                user_language = coder.get_user_language();
+            } }
+            commit_message = self.get_commit_message(diffs, context, user_language);
+            }
+
+        if (coder and hasattr(coder, 'args') ) {
+            attribute_author = coder.args.attribute_author;
+            attribute_committer = coder.args.attribute_committer;
+            attribute_commit_message_author =
+                coder.args.attribute_commit_message_author;
+            attribute_commit_message_committer =
+                coder.args.attribute_commit_message_committer;
+            attribute_co_authored_by = coder.args.attribute_co_authored_by;
+        }
+            else
+            {
+            attribute_author = self.attribute_author;
+            attribute_committer = self.attribute_committer;
+            attribute_commit_message_author = self.attribute_commit_message_author;
+            attribute_commit_message_committer =
+                self.attribute_commit_message_committer;
+            attribute_co_authored_by = self.attribute_co_authored_by;
+            }
+
+        author_explicit = (attribute_author is not None);
+        committer_explicit = (attribute_committer is not None);
+        effective_author = True if (attribute_author is None) else attribute_author;
+        effective_committer =
+            True if (attribute_committer is None) else attribute_committer;
+        prefix_commit_message =
+            (aider_edits and (attribute_commit_message_author or attribute_commit_message_committer )
+            );
+        commit_message_trailer = '';
+        if (aider_edits and attribute_co_authored_by ) {
+            model_name = 'unknown-model';
+            commit_message_trailer =
+                f"'\n\nCo-authored-by: aider ('{model_name}') <aider@aider.chat>'";
+        if (coder and hasattr(coder, 'main_model') and coder.main_model.name ) {
+            model_name = coder.main_model.name;
+        } }
+        use_attribute_author =
+            (aider_edits and effective_author and (not attribute_co_authored_by or author_explicit )
+            );
+        use_attribute_committer =
+            (effective_committer and (not (aider_edits and attribute_co_authored_by ) or committer_explicit )
+            );
+        if not commit_message {
+            commit_message = '(no commit message provided)';
+        }
+        if prefix_commit_message {
+            commit_message = ('aider: ' + commit_message);
+        }
+        full_commit_message = (commit_message + commit_message_trailer);
+        cmd = ['-m', full_commit_message];
+        if not self.git_commit_verify {
+            cmd.append('--no-verify');
+        }
+        if fnames { fnames = [ str(self.abs_root_path(fn)) for fn in fnames ]; for fname in fnames {
+            try {
+                self.repo.git.add(fname);
+            } except ANY_GIT_ERROR as err {
+                self.io.tool_error(f"'Unable to add '{fname}': '{err}");
+            }
+        } }
+            else
+            {
+            cmd += ['-a'];
+            }
+
+        original_user_name = self.repo.git.config('--get', 'user.name');
+        original_committer_name_env = os.environ.get('GIT_COMMITTER_NAME');
+        original_author_name_env = os.environ.get('GIT_AUTHOR_NAME');
+        committer_name = f"{original_user_name}' (aider)'";
+        try {
+            with contextlib.ExitStack() as stack  {
+                if use_attribute_committer {
+                    stack.enter_context(
+                        set_git_env(
+                            'GIT_COMMITTER_NAME',
+                            committer_name,
+                            original_committer_name_env
+                        )
+                    );
+                }
+                if use_attribute_author {
+                    stack.enter_context(
+                        set_git_env(
+                            'GIT_AUTHOR_NAME',
+                            committer_name,
+                            original_author_name_env
+                        )
+                    );
+                }
+                self.repo.git.commit(cmd);
+                commit_hash = self.get_head_commit_sha(short=True);
+                self.io.tool_output(
+                    f"'Commit '{commit_hash}' '{commit_message}",
+                    bold=True
+                );
+                return (commit_hash, commit_message);
+            }
+        } except ANY_GIT_ERROR as err {
+            self.io.tool_error(f"'Unable to commit: '{err}");
+        }
+    }
+
+    def get_rel_repo_dir(self: GitRepo) {
+        try {
+            return os.path.relpath(self.repo.git_dir, os.getcwd());
+        } except (ValueError, OSError) {
+            return self.repo.git_dir;
+        }
+    }
+
+    def get_commit_message(
+        self: GitRepo,
+        diffs: Any,
+        context: Any,
+        user_language: Any = None
+    ) {
+        diffs = ('# Diffs:\n' + diffs);
+        content = '';
+        if context {
+            content += (context + '\n');
+        }
+        content += diffs;
+        system_content = (self.commit_prompt or prompts.commit_system );
+        language_instruction = '';
+        if user_language {
+            language_instruction = f"'\n- Is written in '{user_language}'.'";
+        }
+        system_content =
+            system_content.format(language_instruction=language_instruction);
+        commit_message = None;
+        for model in self.models { spinner_text =
+            f"'Generating commit message with '{model.name}"; }
+        if not commit_message { self.io.tool_error('Failed to generate commit message!'); return;  }
+        commit_message = commit_message.strip();
+        if (commit_message and (commit_message[ 0 ] == '"')
+        and (commit_message[ -1 ] == '"')
+        ) {
+            commit_message = commit_message[ 1 : -1 ].strip();
+        }
+        return commit_message;
+    }
+
+    def get_diffs(self: GitRepo, fnames: Any = None) {
+        current_branch_has_commits = False;
+        active_branch = self.repo.active_branch;
+            except
+            ((TypeError, ) + ANY_GIT_ERROR)
+            {
+            ;
+            }
+        if not fnames {
+            fnames = [];
+        }
+        diffs = '';
+
+            for
+            fname
+            in
+            fnames
+            {
+            if not self.path_in_repo(fname) {
+                diffs += f"'Added '{fname}'\n'";
+            }
+            }
+        try {
+            if current_branch_has_commits {
+                args = (['HEAD', '--'] + <>list(fnames));
+                diffs += self.repo.git.diff(*args, stdout_as_string=False).decode(
+                    self.io.encoding,
+                    'replace'
+                );
+                return diffs;
+            }
+            wd_args = (['--'] + <>list(fnames));
+            index_args = (['--cached'] + wd_args);
+            diffs += self.repo.git.diff(*index_args, stdout_as_string=False).decode(
+                self.io.encoding,
+                'replace'
+            );
+            diffs += self.repo.git.diff(*wd_args, stdout_as_string=False).decode(
+                self.io.encoding,
+                'replace'
+            );
+            return diffs;
+        } except ANY_GIT_ERROR as err {
+            self.io.tool_error(f"'Unable to diff: '{err}");
+        }
+    }
+
+    def diff_commits(self: GitRepo, pretty: Any, from_commit: Any, to_commit: Any) {
+        args = [];
+        if pretty {
+            args += ['--color'];
+        }
+            else
+            {
+            args += ['--color=never'];
+            }
+
+        args += [from_commit, to_commit];
+        diffs =
+            self.repo.git.diff(*args, stdout_as_string=False).decode(
+                self.io.encoding,
+                'replace'
+            );
+        return diffs;
+    }
+
+    def get_tracked_files(self: GitRepo) {
+        not self.repo
+            if
+            {
+            return [];
+            }
+
+            try
+            {
+            commit = self.repo.head.commit;
+            }
+            except ANY_GIT_ERROR as err { self.git_repo_error = err; self.io.tool_error(f"'Unable to list files in git repo: '{err}"); self.io.tool_output('Is your git repo corrupted?'); return [];  }
+        except ValueError {
+            commit = None;
+        }
+        files = <>set();
+
+            if
+            commit
+            {
+            if (commit in self.tree_files) {
+                files = self.tree_files[ commit ];
+            }
+                else
+                {
+                iterator = commit.tree.traverse(); blob = None;
+                files = <>set(( self.normalize_path(path) for path in files ));
+                self.tree_files[ commit ] = <>set(files);
+                }
+
+            }
+        index = self.repo.index;
+        try {
+            staged_files = [ path for (path, _) in index.entries.keys() ];
+            files.update(( self.normalize_path(path) for path in staged_files ));
+        } except ANY_GIT_ERROR as err {
+            self.io.tool_error(f"'Unable to read staged files: '{err}");
+        }
+        res = [ fname for fname in files if not self.ignored_file(fname) ];
+        return res;
+    }
+
+    def normalize_path(self: GitRepo, path: Any) {
+        orig_path = path;
+        res = self.normalized_path.get(orig_path);
+        if res {
+            return res;
+        }
+        path =
+            str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))));
+        self.normalized_path[ orig_path ] = path;
+        return path;
+    }
+
+    def refresh_aider_ignore(self: GitRepo) {
+        not self.aider_ignore_file
+            if
+            {
+            return;
+            }
+        current_time = time.time();
+
+            if
+            ((current_time - self.aider_ignore_last_check) < 1)
+            {
+            return;
+            }
+        self.aider_ignore_last_check = current_time;
+        not self.aider_ignore_file.is_file()
+            if
+            {
+            return;
+            }
+        mtime = self.aider_ignore_file.stat().st_mtime;
+        if (mtime != self.aider_ignore_ts) {
+            self.aider_ignore_ts = mtime;
+            self.ignore_file_cache = {};
+            lines = self.aider_ignore_file.read_text().splitlines();
+            self.aider_ignore_spec =
+                pathspec.PathSpec.from_lines(
+                    pathspec.patterns.GitWildMatchPattern,
+                    lines
+                );
+        }
+    }
+
+    def git_ignored_file(self: GitRepo, path: Any) {
+        not self.repo
+            if
+            {
+            return;
+            }
+        try {
+            if self.repo.ignored(path) {
+                return True;
+            }
+        } except ANY_GIT_ERROR {
+            return False;
+        }
+    }
+
+    def ignored_file(self: GitRepo, fname: Any) {
+        self.refresh_aider_ignore();
+        if (fname in self.ignore_file_cache) {
+            return self.ignore_file_cache[ fname ];
+        }
+        result = self.ignored_file_raw(fname);
+        self.ignore_file_cache[ fname ] = result;
+        return result;
+    }
+
+    def ignored_file_raw(self: GitRepo, fname: Any) {
+        if self.subtree_only {
+            try {
+                fname_path = Path(self.normalize_path(fname));
+                cwd_path = Path.cwd().resolve().relative_to(Path(self.root).resolve());
+            } except ValueError {
+                return True;
+            }
+        if ((cwd_path not in fname_path.parents) and (fname_path != cwd_path) ) {
+            return True;
+        } }
+        if (not self.aider_ignore_file or not self.aider_ignore_file.is_file() ) {
+            return False;
+        }
+        try {
+            fname = self.normalize_path(fname);
+        } except ValueError {
+            return True;
+        }
+        return self.aider_ignore_spec.match_file(fname);
+    }
+
+    def path_in_repo(self: GitRepo, path: Any) {
+        not self.repo
+            if
+            {
+            return;
+            }
+        not path
+            if
+            {
+            return;
+            }
+        tracked_files = <>set(self.get_tracked_files());
+        return (self.normalize_path(path) in tracked_files);
+    }
+
+    def abs_root_path(self: GitRepo, path: Any) {
+        res = (Path(self.root) / path);
+        return utils.safe_abs_path(res);
+    }
+
+    """\n        Returns a list of all files which are dirty (not committed), either staged or in the working\n        directory.\n        """
+    def get_dirty_files(self: GitRepo) {
+        dirty_files = <>set();
+        staged_files = self.repo.git.diff('--name-only', '--cached').splitlines();
+        dirty_files.update(staged_files);
+        unstaged_files = self.repo.git.diff('--name-only').splitlines();
+        dirty_files.update(unstaged_files);
+        return <>list(dirty_files);
+    }
+
+    def is_dirty(self: GitRepo, path: Any = None) {
+        if (path and not self.path_in_repo(path) ) {
+            return True;
+        }
+        return self.repo.is_dirty(path=path);
+    }
+
+    def get_head_commit(self: GitRepo) {
+        try {
+            return self.repo.head.commit;
+        } except ((ValueError, ) + ANY_GIT_ERROR) {
+            return None;
+        }
+    }
+
+    def get_head_commit_sha(self: GitRepo, short: Any = False) {
+        commit = self.get_head_commit();
+        not commit
+            if
+            {
+            return;
+            }
+        if short {
+            return commit.hexsha[ : 7 ];
+        }
+        return commit.hexsha;
+    }
+
+    def get_head_commit_message(self: GitRepo, default: Any = None) {
+        commit = self.get_head_commit();
+        if not commit {
+            return default;
+        }
+        return commit.message;
+    }
+}
