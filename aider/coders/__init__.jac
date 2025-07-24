@@ -1,34 +1,34 @@
-from .architect_coder import ArchitectCoder
-from .ask_coder import AskCoder
-from .base_coder import Coder
-from .context_coder import ContextCoder
-from .editblock_coder import EditBlockCoder
-from .editblock_fenced_coder import EditBlockFencedCoder
-from .editor_diff_fenced_coder import EditorDiffFencedCoder
-from .editor_editblock_coder import EditorEditBlockCoder
-from .editor_whole_coder import EditorWholeFileCoder
-from .help_coder import HelpCoder
-from .patch_coder import PatchCoder
-from .udiff_coder import UnifiedDiffCoder
-from .udiff_simple import UnifiedDiffSimpleCoder
-from .wholefile_coder import WholeFileCoder
+import from .architect_coder { ArchitectCoder }
+import from .ask_coder { AskCoder }
+import from .base_coder { Coder }
+import from .context_coder { ContextCoder }
+import from .editblock_coder { EditBlockCoder }
+import from .editblock_fenced_coder { EditBlockFencedCoder }
+import from .editor_diff_fenced_coder { EditorDiffFencedCoder }
+import from .editor_editblock_coder { EditorEditBlockCoder }
+import from .editor_whole_coder { EditorWholeFileCoder }
+import from .help_coder { HelpCoder }
+import from .patch_coder { PatchCoder }
+import from .udiff_coder { UnifiedDiffCoder }
+import from .udiff_simple { UnifiedDiffSimpleCoder }
+import from .wholefile_coder { WholeFileCoder }
 
-# from .single_wholefile_func_coder import SingleWholeFileFunctionCoder
 
-__all__ = [
-    HelpCoder,
-    AskCoder,
-    Coder,
-    EditBlockCoder,
-    EditBlockFencedCoder,
-    WholeFileCoder,
-    PatchCoder,
-    UnifiedDiffCoder,
-    UnifiedDiffSimpleCoder,
-    #    SingleWholeFileFunctionCoder,
-    ArchitectCoder,
-    EditorEditBlockCoder,
-    EditorWholeFileCoder,
-    EditorDiffFencedCoder,
-    ContextCoder,
-]
+with entry {
+    __all__ =
+
+        [HelpCoder,
+        AskCoder,
+        Coder,
+        EditBlockCoder,
+        EditBlockFencedCoder,
+        WholeFileCoder,
+        PatchCoder,
+        UnifiedDiffCoder,
+        UnifiedDiffSimpleCoder,
+        ArchitectCoder,
+        EditorEditBlockCoder,
+        EditorWholeFileCoder,
+        EditorDiffFencedCoder,
+        ContextCoder];
+}
