@@ -5,7 +5,7 @@ openai.api_key = 'YOUR_API_KEY'
 
 def get_sentiment(sentence):
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         messages=[
             {"role": "user", "content": f"What is the sentiment of the following sentence: '{sentence}'?"}
         ]
