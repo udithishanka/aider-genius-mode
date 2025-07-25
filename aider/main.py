@@ -1150,6 +1150,14 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         analytics.event("exit", reason="Completed --message-file")
         return
 
+    if args.genius:
+        from aider.genius_mode import GeniusMode
+        task = args.genius_task or args.message
+        gm = GeniusMode(coder, task=task, max_iterations=args.genius_limit)
+        gm.run()
+        analytics.event("exit", reason="genius mode")
+        return
+        
     if args.exit:
         analytics.event("exit", reason="Exit flag set")
         return
