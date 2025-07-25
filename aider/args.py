@@ -695,6 +695,24 @@ def get_parser(default_config_files, git_root):
         help="Print the system prompts and exit (debug)",
         default=False,
     )
+    group.add_argument(
+        "--genius",
+        action="store_true",
+        default=False,
+        help="Run in autonomous Genius Mode",
+    )
+    group.add_argument(
+        "--genius-limit",
+        type=int,
+        metavar="N",
+        default=5,
+        help="Max iterations for Genius Mode (default: 5)",
+    )
+    group.add_argument(
+        "--genius-task",
+        metavar="GENIUS_TASK",
+        help="Specify the task for Genius Mode",
+    )
 
     ##########
     group = parser.add_argument_group("Voice settings")
