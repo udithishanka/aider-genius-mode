@@ -268,13 +268,17 @@ class GeniusAgent:
         if not self.web_searcher or not self.web_searcher.is_available():
             return False
             
-        # Search for feature implementation tasks or when dealing with errors
+        # Search for feature implementation, improvement tasks, or when dealing with errors
         return (
-            task["type"] == "feature_implementation" or
+            task["type"] in ["feature_implementation", "improvement"] or
             self.last_error_context is not None or
             "API" in task.get("details", "") or
+            "REST" in task.get("details", "") or
+            "JWT" in task.get("details", "") or
+            "authentication" in task.get("details", "").lower() or
             "documentation" in task.get("details", "").lower() or
-            "jac language" in task.get("details", "").lower()
+            "jac language" in task.get("details", "").lower() or
+            "create" in task.get("details", "").lower()
         )
 
     def _perform_web_search(self, task: Dict[str, Any]) -> Optional[str]:
@@ -286,9 +290,15 @@ class GeniusAgent:
             
         self.log_agent_action(
             "Web Search",
-            f"Searching for context: {len(search_queries)} queries",
+            f"🔍 STARTING WEB SEARCH - {len(search_queries)} queries",
             "Gathering additional information to improve implementation quality"
         )
+        
+        # DEBUG: Print search details
+        self.coder.io.tool_output(f"🐛 DEBUG: Web searcher available: {self.web_searcher is not None}")
+        if self.web_searcher:
+            self.coder.io.tool_output(f"🐛 DEBUG: API configured: {self.web_searcher.is_available()}")
+            self.coder.io.tool_output(f"🐛 DEBUG: Search queries: {search_queries}")
         
         try:
             # Use the web searcher to search multiple queries
@@ -297,23 +307,29 @@ class GeniusAgent:
                 max_results_per_query=2
             )
             
+            # DEBUG: Print results
+            self.coder.io.tool_output(f"🐛 DEBUG: Search results length: {len(search_results) if search_results else 0}")
+            if search_results:
+                self.coder.io.tool_output(f"🐛 DEBUG: Results preview: {search_results[:200]}...")
+            
             if search_results and not search_results.startswith("No"):
                 self.log_agent_action(
                     "Web Search",
-                    "Search completed successfully",
-                    f"Found relevant information for task implementation"
+                    "✅ SEARCH COMPLETED - Found relevant information",
+                    f"Successfully retrieved web search results for task implementation"
                 )
                 return search_results
             else:
                 self.log_agent_action(
                     "Web Search",
-                    "No useful results found",
+                    "⚠️ SEARCH EMPTY - No useful results found",
                     "Proceeding without additional web context"
                 )
                 return None
                 
         except Exception as e:
-            self.log_agent_action("Web Search", "Search failed", str(e))
+            self.coder.io.tool_output(f"🐛 DEBUG: Search exception: {e}")
+            self.log_agent_action("Web Search", "❌ SEARCH FAILED", str(e))
             return None
 
     def _generate_search_queries(self, task: Dict[str, Any]) -> List[str]:
