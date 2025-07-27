@@ -40,6 +40,25 @@ from aider.watch import FileWatcher
 from .dump import dump  # noqa: F401
 
 
+def show_jac_coder_ascii_art():
+    """Display Jac Coder ASCII art banner"""
+    ascii_art = """
+    
+    ##################################################
+    #                                                #
+    #      _                            _            #
+    #     | | __ _  ___    ___ ___   __| | ___ _ __  #
+    #  _  | |/ _` |/ __|  / __/ _ \ / _` |/ _ \ '__| #
+    # | |_| | (_| | (__  | (_| (_) | (_| |  __/ |    #
+    #  \___/ \__,_|\___|  \___\___/ \__,_|\___|_|    #
+    #                                                #
+    ##################################################
+
+    Advanced AI-Powered Pair Programming in Your Terminal
+    """
+    print(ascii_art)
+
+
 def check_config_files_for_yes(config_files):
     found = False
     for config_file in config_files:
@@ -505,7 +524,7 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
 
     if args.shell_completions:
         # Ensure parser.prog is set for shtab, though it should be by default
-        parser.prog = "aider"
+        parser.prog = "jac-coder"
         print(shtab.complete(parser, shell=args.shell_completions))
         sys.exit(0)
 
@@ -586,6 +605,10 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         io = get_io(False)
         io.tool_warning("Terminal does not support pretty output (UnicodeDecodeError)")
 
+    # Show JAC-CODER ASCII art banner
+    if not return_coder and not args.gui:
+        show_jac_coder_ascii_art()
+
     # Process any environment variables set via --set-env
     if args.set_env:
         for env_setting in args.set_env:
@@ -642,12 +665,12 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     if args.analytics is not False:
         if analytics.need_to_ask(args.analytics):
             io.tool_output(
-                "Aider respects your privacy and never collects your code, chat messages, keys or"
+                "JAC-CODER respects your privacy and never collects your code, chat messages, keys or"
                 " personal info."
             )
             io.tool_output(f"For more info: {urls.analytics}")
             disable = not io.confirm_ask(
-                "Allow collection of anonymous analytics to help improve aider?"
+                "Allow collection of anonymous analytics to help improve jac-coder?"
             )
 
             analytics.asked_opt_in = True
