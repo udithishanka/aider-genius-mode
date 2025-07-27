@@ -1151,10 +1151,31 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         return
 
     if args.genius:
-        from aider.genius_mode import GeniusMode
+        from aider.genius_mode import GeniusAgent
         task = args.genius_task or args.message
-        gm = GeniusMode(coder, task=task, max_iterations=args.genius_limit)
-        gm.run()
+        
+        # Handle web search flags
+        enable_web_search = True
+        if args.disable_web_search:
+            enable_web_search = False
+        elif hasattr(args, 'enable_web_search'):
+            enable_web_search = args.enable_web_search
+            
+        # Handle security scan flags  
+        enable_security_scan = True
+        if args.disable_security_scan:
+            enable_security_scan = False
+        elif hasattr(args, 'enable_security_scan'):
+            enable_security_scan = args.enable_security_scan
+        
+        agent = GeniusAgent(
+            coder=coder, 
+            task=task, 
+            max_iterations=args.genius_limit,
+            enable_web_search=enable_web_search,
+            enable_security_scan=enable_security_scan
+        )
+        agent.run()
         analytics.event("exit", reason="genius mode")
         return
         
