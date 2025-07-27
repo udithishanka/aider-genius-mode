@@ -1152,7 +1152,23 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
 
     if args.genius:
         from aider.genius_mode import GeniusAgent
-        task = args.genius_task or args.message or "Analyze and improve the codebase"
+        
+        # Try to get task from multiple sources in order of priority
+        task = args.genius_task or args.message
+        
+        # If no explicit task, check if there are file arguments that look like task descriptions
+        if not task and args.files:
+            # If the file argument doesn't exist and looks like a task description, use it as task
+            potential_task = args.files[0] if len(args.files) == 1 else None
+            if potential_task and not Path(potential_task).exists():
+                # If it doesn't exist as a file and contains descriptive words, treat as task
+                task_indicators = ['create', 'add', 'implement', 'build', 'make', 'generate', 'write']
+                if any(indicator in potential_task.lower() for indicator in task_indicators):
+                    task = potential_task
+        
+        # Fallback to default task
+        if not task:
+            task = "Analyze and improve the codebase"
         
         # Handle web search flags
         enable_web_search = True
