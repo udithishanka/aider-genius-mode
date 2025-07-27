@@ -4,6 +4,13 @@ import time
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 
+try:
+    from aider.web_search import create_web_searcher
+    WEB_SEARCH_AVAILABLE = True
+except ImportError:
+    WEB_SEARCH_AVAILABLE = False
+    create_web_searcher = None
+
 class GeniusAgent:
     """
     AI Agent that autonomously plans, codes, validates, and iterates on development tasks.
@@ -24,6 +31,12 @@ class GeniusAgent:
         self.enable_web_search = enable_web_search
         self.enable_security_scan = enable_security_scan
         self.planning_model = planning_model or coder.main_model
+        
+        # Initialize web searcher
+        if WEB_SEARCH_AVAILABLE and create_web_searcher:
+            self.web_searcher = create_web_searcher(print_error=coder.io.tool_error)
+        else:
+            self.web_searcher = None
         
         # Agent state
         self.current_iteration = 0
@@ -147,6 +160,15 @@ class GeniusAgent:
         """Create a dynamic task graph based on analysis"""
         tasks = []
         
+        # Add the main task first if it's not the default
+        if self.task and self.task != "Analyze and improve the codebase":
+            tasks.append({
+                "name": self.task,
+                "type": "feature_implementation",
+                "priority": 1,
+                "details": self.task
+            })
+        
         # Add tasks based on discovered issues
         for issue in issues:
             if issue["type"] == "lint":
@@ -165,17 +187,8 @@ class GeniusAgent:
                     "details": issue["details"]
                 })
         
-        # Add improvement tasks based on the original task
-        if self.task and self.task != "Analyze and improve the codebase":
-            tasks.append({
-                "name": self.task,
-                "type": "feature_implementation",
-                "priority": 1,
-                "details": self.task
-            })
-        
-        # Add code quality improvement tasks
-        if repo_context["files_in_chat"]:
+        # Add code quality improvement tasks only if we don't have a specific main task
+        if self.task == "Analyze and improve the codebase" and repo_context["files_in_chat"]:
             tasks.append({
                 "name": "Improve code quality and documentation",
                 "type": "improvement",
@@ -251,56 +264,114 @@ class GeniusAgent:
 
     def _should_search_web(self, task: Dict[str, Any]) -> bool:
         """Determine if web search would be helpful for this task"""
+        # Only search if web searcher is available and configured
+        if not self.web_searcher or not self.web_searcher.is_available():
+            return False
+            
         # Search for feature implementation tasks or when dealing with errors
         return (
             task["type"] == "feature_implementation" or
             self.last_error_context is not None or
             "API" in task.get("details", "") or
-            "documentation" in task.get("details", "").lower()
+            "documentation" in task.get("details", "").lower() or
+            "jac language" in task.get("details", "").lower()
         )
 
     def _perform_web_search(self, task: Dict[str, Any]) -> Optional[str]:
-        """Perform web search for additional context"""
+        """Perform web search for additional context using Serper API"""
         search_queries = self._generate_search_queries(task)
         
-        for query in search_queries[:2]:  # Limit to 2 searches to avoid being too slow
-            try:
-                # Use a search URL - this is a simplified implementation
-                search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        if not search_queries:
+            return None
+            
+        self.log_agent_action(
+            "Web Search",
+            f"Searching for context: {len(search_queries)} queries",
+            "Gathering additional information to improve implementation quality"
+        )
+        
+        try:
+            # Use the web searcher to search multiple queries
+            search_results = self.web_searcher.search_multiple_queries(
+                search_queries[:2],  # Limit to 2 queries to avoid being too slow
+                max_results_per_query=2
+            )
+            
+            if search_results and not search_results.startswith("No"):
                 self.log_agent_action(
                     "Web Search",
-                    f"Searching for: {query}",
-                    "Gathering additional context for informed implementation"
+                    "Search completed successfully",
+                    f"Found relevant information for task implementation"
                 )
+                return search_results
+            else:
+                self.log_agent_action(
+                    "Web Search",
+                    "No useful results found",
+                    "Proceeding without additional web context"
+                )
+                return None
                 
-                # In a real implementation, you'd use the scraper here
-                # For now, we'll just log that we would search
-                return f"Would search for: {query}"
-                
-            except Exception as e:
-                self.log_agent_action("Web Search", "Search failed", str(e))
-        
-        return None
+        except Exception as e:
+            self.log_agent_action("Web Search", "Search failed", str(e))
+            return None
 
     def _generate_search_queries(self, task: Dict[str, Any]) -> List[str]:
         """Generate relevant search queries for the task"""
         queries = []
+        details = task.get("details", "").lower()
         
         if task["type"] == "feature_implementation":
             # Extract key terms from the task
-            details = task.get("details", "")
-            queries.append(f"how to implement {details} python")
-            queries.append(f"{details} best practices")
+            task_details = task.get("details", "")
             
+            # Special handling for Jac language
+            if "jac language" in details or "jac" in details:
+                queries.extend([
+                    "Jac programming language syntax examples",
+                    "Jac language documentation tutorial",
+                    f"Jac language {task_details.replace('jac language', '').strip()}"
+                ])
+            else:
+                queries.extend([
+                    f"how to implement {task_details} python",
+                    f"{task_details} best practices examples"
+                ])
+                
+            # Add specific context based on content
+            if "calculation" in details:
+                queries.append("programming calculation script examples")
+            if "api" in details:
+                queries.append("API development best practices")
+            if "test" in details:
+                queries.append("unit testing examples")
+                
         elif task["type"] == "fix_tests":
-            queries.append("python test debugging common issues")
+            queries.extend([
+                "python test debugging common issues",
+                "unit test failure troubleshooting"
+            ])
+            
+        elif task["type"] == "fix_lint":
+            queries.extend([
+                "python linting errors solutions",
+                "code style fixing best practices"
+            ])
             
         elif self.last_error_context:
             # Search for error solutions
             error_key_terms = self.last_error_context[:100]  # First 100 chars
-            queries.append(f"python error {error_key_terms}")
+            queries.append(f"python error solution {error_key_terms}")
         
-        return queries
+        # Remove duplicates while preserving order
+        unique_queries = []
+        seen = set()
+        for query in queries:
+            if query.lower() not in seen:
+                unique_queries.append(query)
+                seen.add(query.lower())
+                
+        return unique_queries
 
     def code_execution_validation_phase(self) -> Tuple[bool, Dict[str, Any]]:
         """

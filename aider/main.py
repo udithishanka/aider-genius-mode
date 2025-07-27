@@ -1152,7 +1152,7 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
 
     if args.genius:
         from aider.genius_mode import GeniusAgent
-        task = args.genius_task or args.message
+        task = args.genius_task or args.message or "Analyze and improve the codebase"
         
         # Handle web search flags
         enable_web_search = True
