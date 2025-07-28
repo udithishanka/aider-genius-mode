@@ -1189,9 +1189,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
                 if any(indicator in potential_task.lower() for indicator in task_indicators):
                     task = potential_task
         
-        # Fallback to default task
-        if not task:
-            task = "Analyze and improve the codebase"
+        # Don't set a default task here - let GeniusAgent handle it
+        # This way GeniusAgent knows whether a task was explicitly provided
         
         # Handle web search flags
         enable_web_search = True
@@ -1209,7 +1208,7 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         
         agent = GeniusAgent(
             coder=coder, 
-            task=task, 
+            task=task,  # This will be None if no task was provided
             max_iterations=args.genius_limit,
             enable_web_search=enable_web_search,
             enable_security_scan=enable_security_scan

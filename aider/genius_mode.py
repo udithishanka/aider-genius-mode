@@ -27,6 +27,7 @@ class GeniusAgent:
                  enable_security_scan=True, planning_model=None):
         self.coder = coder
         self.task = task or "Analyze and improve the codebase"
+        self.task_explicitly_provided = task is not None
         self.max_iterations = max_iterations
         self.enable_web_search = enable_web_search
         self.enable_security_scan = enable_security_scan
@@ -65,11 +66,12 @@ class GeniusAgent:
         """
         Advanced planning phase that uses LLM to analyze the repository and creates a dynamic task graph.
         """
-        # Always check if we need to get a task from the user when using default task
-        if self.task == "Analyze and improve the codebase":
+        # Only prompt for user task if no task was explicitly provided
+        if not self.task_explicitly_provided:
             user_task = self._get_task_from_user()
             if user_task:
                 self.task = user_task
+                self.task_explicitly_provided = True
                 self.log_agent_action(
                     "Planning",
                     "User task received",
