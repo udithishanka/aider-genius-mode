@@ -58,11 +58,6 @@ class GeniusAgent {
         details: Optional[Dict] = None
     ) {
         self.coder.io.tool_output(f" 'Genius Agent - Phase: ' {phase} ' | Action: ' {action} ' | Reasoning: ' {reasoning} ");
-        # if details {
-        #     for (key, value) in details.items() {
-        #         self.coder.io.tool_output(f" '   ' {key} ': ' {value} ");
-        #     }
-        # }
         self.coder.io.tool_output('');
     }
 
@@ -100,37 +95,28 @@ class GeniusAgent {
     """Get a task description from the user via input prompt"""
     def _get_task_from_user(self: Any) -> Optional[str] {
         try {
-            self.coder.io.tool_output(
-                'Genius Agent: A specific task is required to proceed.'
-            );
+            self.coder.io.tool_output('Genius Agent: A specific task is required to proceed.');
             self.coder.io.tool_output("Please describe what you'd like me to work on:");
             self.coder.io.tool_output('(Ctrl+C to cancel)');
             user_input = input('\n> ').strip();
             if user_input {
                 return user_input;
             } else {
-                self.coder.io.tool_output(
-                    'No task provided. Cannot proceed without a specific task.'
-                );
+                self.coder.io.tool_output('No task provided. Cannot proceed without a specific task.');
                 return None;
             }
         } except (KeyboardInterrupt, EOFError) {
             self.coder.io.tool_output('\nTask input cancelled by user.');
             return None;
         } except Exception as e {
-            self.log_agent_action(
-                'Planning',
-                'Failed to get user input',
-                f" 'Error: ' {str(e)} ' - Cannot proceed without task' "
-            );
+            self.log_agent_action('Planning','Failed to get user input',f" 'Error: ' {str(e)} ' - Cannot proceed without task' ");
             return None;
         }
     }
+
     """Gather comprehensive repository context"""
     def _gather_repository_context(self: Any) -> Dict[str, Any] {
-        context =
-
-            {'files_in_chat' : <>list(self.coder.abs_fnames) , 'readonly_files' : <>list(self.coder.abs_read_only_fnames) , 'repo_map' : None , 'terminal_output' : None , 'git_status' : None , 'missing_files' : [] };
+        context = {'files_in_chat' : list(self.coder.abs_fnames) , 'readonly_files' : list(self.coder.abs_read_only_fnames) , 'repo_map' : None , 'terminal_output' : None , 'git_status' : None , 'missing_files' : [] };
         if self.coder.repo_map {
             repo_map = self.coder.get_repo_map();
             if repo_map {
@@ -154,11 +140,7 @@ class GeniusAgent {
                 }
                 if missing_files {
                     context['missing_files'] = missing_files;
-                    self.log_agent_action(
-                        'Planning',
-                        'Detected missing files from repo map',
-                        f" 'Found ' {len(missing_files)} ' files referenced but not present: ' {missing_files[ : 3 ]} '...' "
-                    );
+                    self.log_agent_action('Planning','Detected missing files from repo map', f" 'Found ' {len(missing_files)} ' files referenced but not present: ' {missing_files[ : 3 ]} '...' ");
                 }
             }
         }
@@ -172,6 +154,7 @@ class GeniusAgent {
         }
         return context;
     }
+
     """Analyze current issues in the codebase"""
     def _analyze_current_issues(self: Any) -> List[Dict[(str, Any)]] {
         issues = [];
@@ -205,6 +188,7 @@ class GeniusAgent {
         }
         return issues;
     }
+
     """Create a dynamic task graph based on analysis"""
     def _create_task_graph(
         self: Any,
@@ -243,9 +227,8 @@ class GeniusAgent {
         tasks.sort(key=lambda  x: Any: x['priority']);
         return tasks;
     }
-    """
-    Use LLM to analyze the task and repository context to create an intelligent task plan.
-    """
+
+    """Use LLM to analyze the task and repository context to create an intelligent task plan."""
     def _llm_based_task_planning(
         self: Any,
         repo_context: Dict,
@@ -436,6 +419,7 @@ class GeniusAgent {
         );
         return '\n'.join(prompt_parts);
     }
+
     """Parse the LLM's planning response and convert to task objects"""
     def _parse_llm_planning_response(self: Any, response: str) -> List[Dict[(str, Any)]] {
         try {
@@ -481,6 +465,7 @@ class GeniusAgent {
         if (self.task != 'Analyze and improve the codebase')
         else 'improvement' , 'priority' : 1 , 'details' : self.task , 'dependencies' : [] , 'estimated_effort' : 'medium' }];
     }
+
     """Sort tasks by dependencies and priority"""
     def _resolve_task_dependencies(
         self: Any,
@@ -511,9 +496,8 @@ class GeniusAgent {
         }
         return resolved;
     }
-    """
-    Enhanced editing phase that generates/edits code based on current task.
-    """
+
+    """Enhanced editing phase that generates/edits code based on current task."""
     def editing_code_generation_phase(self: Any, task: Dict[(str, Any)]) -> bool {
         self.log_agent_action(
             'Editing/Code Generation',
@@ -585,6 +569,7 @@ class GeniusAgent {
         }
         return base_message;
     }
+
     """Determine if web search would be helpful for this task"""
     def _should_search_web(self: Any, task: Dict[(str, Any)]) -> bool {
         if (not self.web_searcher or not self.web_searcher.is_available() ) {
@@ -598,6 +583,7 @@ class GeniusAgent {
         or ('create' in task.get('details', '').lower())
         );
     }
+
     """Perform web search for additional context using Serper API"""
     def _perform_web_search(self: Any, task: Dict[(str, Any)]) -> Optional[str] {
         search_queries = self._generate_search_queries(task);
@@ -653,6 +639,7 @@ class GeniusAgent {
             return None;
         }
     }
+
     """Generate relevant search queries for the task"""
     def _generate_search_queries(self: Any, task: Dict[(str, Any)]) -> List[str] {
         queries = [];
@@ -706,9 +693,8 @@ class GeniusAgent {
         }
         return unique_queries;
     }
-    """
-    Comprehensive validation phase with testing, linting, and security scanning.
-    """
+
+    """Comprehensive validation phase with testing, linting, and security scanning."""
     def code_execution_validation_phase(self: Any) -> Tuple[bool, Dict[(str, Any)]] {
         self.log_agent_action(
             'Code Execution/Validation',
@@ -826,6 +812,7 @@ class GeniusAgent {
         if security_issues
         else 'No security issues detected' };
     }
+
     """Generate a comprehensive report of the agent's work"""
     def generate_report(self: Any) -> str {
         <>report =
@@ -858,10 +845,8 @@ class GeniusAgent {
         }
         return '\n'.join(<>report);
     }
-    """
-    Main execution loop for the Genius Agent.
-    Implements the complete agent architecture with feedback loops.
-    """
+
+    """Main execution loop for the Genius Agent. Implements the complete agent architecture with feedback loops."""
     def run(self: Any) -> bool {
         self.log_agent_action(
             'Initialization',
@@ -938,6 +923,7 @@ class GeniusAgent {
         }
         return None;
     }
+
     """Handle validation failure with intelligent feedback"""
     def _handle_validation_failure(
         self: Any,
@@ -983,6 +969,7 @@ class GeniusAgent {
             );
         }
     }
+
 }
 
 
@@ -992,3 +979,5 @@ class GeniusMode(GeniusAgent) {
         <>super().init(coder, task, max_iterations);
     }
 }
+
+
