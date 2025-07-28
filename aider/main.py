@@ -7,6 +7,7 @@ import traceback
 import webbrowser
 from dataclasses import fields
 from pathlib import Path
+import jaclang
 
 try:
     import git
