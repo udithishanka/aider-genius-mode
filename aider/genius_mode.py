@@ -92,6 +92,15 @@ class GeniusAgent:
             "Building comprehensive understanding of codebase before making changes"
         )
         
+        # Force refresh the repository map to get current state
+        if self.coder.repo_map:
+            self.log_agent_action(
+                "Planning",
+                "Refreshing repository map",
+                "Ensuring up-to-date view of current files and structure"
+            )
+            self.coder.get_repo_map(force_refresh=True)
+        
         # Gather repository context
         repo_context = self._gather_repository_context()
 
@@ -149,14 +158,38 @@ class GeniusAgent:
             "readonly_files": list(self.coder.abs_read_only_fnames),
             "repo_map": None,
             "terminal_output": None,
-            "git_status": None
+            "git_status": None,
+            "missing_files": []
         }
         
-        # Get repository map
+        # Get repository map and check for missing files
         if self.coder.repo_map:
             repo_map = self.coder.get_repo_map(force_refresh=True)
             if repo_map:
                 context["repo_map"] = repo_map
+                
+                # Check for files mentioned in repo map that don't actually exist
+                import re
+                # Extract file paths from repo map
+                file_mentions = re.findall(r'(\S+\.(?:py|jac|js|ts|md|txt|json|yaml|yml))', str(repo_map))
+                missing_files = []
+                for file_path in file_mentions:
+                    # Resolve relative paths
+                    if not file_path.startswith('/'):
+                        full_path = Path(self.coder.root) / file_path
+                    else:
+                        full_path = Path(file_path)
+                    
+                    if not full_path.exists():
+                        missing_files.append(str(file_path))
+                
+                if missing_files:
+                    context["missing_files"] = missing_files
+                    self.log_agent_action(
+                        "Planning", 
+                        "Detected missing files from repo map", 
+                        f"Found {len(missing_files)} files referenced but not present: {missing_files[:3]}..."
+                    )
                 
         # Get git status if available
         if self.coder.repo:
@@ -327,6 +360,8 @@ class GeniusAgent:
             3. Account for existing issues in the codebase (lint errors, test failures, etc.)
             4. Prioritize critical fixes (tests, security) before feature work
             5. Ensure tasks are specific and actionable
+            6. For missing files (referenced but don't exist), create tasks to build them from scratch rather than fix them
+            7. When creating new files, focus on "feature_implementation" or "documentation" task types
 
             Respond with a JSON array of task objects. Each task should have:
             - "name": Clear, descriptive task name
@@ -337,24 +372,26 @@ class GeniusAgent:
             - "estimated_effort": "small", "medium", or "large"
             - "file": (optional) Specific file path if the task is file-specific (especially for fix_lint, fix_tests)
 
+            IMPORTANT: If a file is listed as "missing" in the context, create tasks to implement/create that file rather than fix it.
+
             Example response:
             [
             {
-                "name": "Fix failing unit tests",
-                "type": "fix_tests", 
+                "name": "Create calculator.jac file with basic structure",
+                "type": "feature_implementation", 
                 "priority": 1,
-                "details": "Address test failures in authentication module",
+                "details": "Create a new calculator.jac file implementing basic calculator functionality in Jac language",
                 "dependencies": [],
                 "estimated_effort": "medium"
             },
             {
-                "name": "Fix linting issues in main.py",
+                "name": "Fix linting issues in existing_file.py",
                 "type": "fix_lint",
                 "priority": 2,
                 "details": "Fix line length and import ordering issues",
                 "dependencies": [],
                 "estimated_effort": "small",
-                "file": "main.py"
+                "file": "existing_file.py"
             }
             ]"""
 
@@ -370,6 +407,13 @@ class GeniusAgent:
         if repo_context.get("files_in_chat"):
             prompt_parts.append("Files currently being worked on:")
             for file in repo_context["files_in_chat"]:
+                prompt_parts.append(f"  - {file}")
+            prompt_parts.append("")
+        
+        # Add missing files information
+        if repo_context.get("missing_files"):
+            prompt_parts.append("Missing files (referenced but don't exist - need to be created):")
+            for file in repo_context["missing_files"]:
                 prompt_parts.append(f"  - {file}")
             prompt_parts.append("")
         
@@ -410,6 +454,7 @@ class GeniusAgent:
             "3. Break down complex work into logical steps", 
             "4. Consider dependencies and proper ordering",
             "5. Be specific about what each task should accomplish",
+            "6. For missing files, create tasks to build them from scratch rather than fix them",
             "",
             "Please analyze the above context and create an optimal task execution plan as a JSON array:"
         ])
@@ -557,6 +602,12 @@ class GeniusAgent:
             
         elif task["type"] == "feature_implementation":
             base_message += f"Please implement the following feature or improvement:\n{task['details']}\n"
+            
+            # Check if this is about creating a new file
+            details_lower = task['details'].lower()
+            if 'create' in details_lower or 'new file' in details_lower:
+                base_message += "\nThis appears to be creating a new file. Please create the file with appropriate content and structure.\n"
+            
             base_message += "Consider the existing codebase structure and maintain consistency."
             
         elif task["type"] == "improvement":
