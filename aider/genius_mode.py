@@ -679,10 +679,10 @@ class GeniusAgent:
         )
         
         # DEBUG: Print search details
-        self.coder.io.tool_output(f"🐛 DEBUG: Web searcher available: {self.web_searcher is not None}")
+        self.coder.io.tool_output(f"DEBUG: Web searcher available: {self.web_searcher is not None}")
         if self.web_searcher:
-            self.coder.io.tool_output(f"🐛 DEBUG: API configured: {self.web_searcher.is_available()}")
-            self.coder.io.tool_output(f"🐛 DEBUG: Search queries: {search_queries}")
+            self.coder.io.tool_output(f"DEBUG: API configured: {self.web_searcher.is_available()}")
+            self.coder.io.tool_output(f"DEBUG: Search queries: {search_queries}")
         
         try:
             # Use the web searcher to search multiple queries
@@ -692,28 +692,28 @@ class GeniusAgent:
             )
             
             # DEBUG: Print results
-            self.coder.io.tool_output(f"🐛 DEBUG: Search results length: {len(search_results) if search_results else 0}")
+            self.coder.io.tool_output(f"DEBUG: Search results length: {len(search_results) if search_results else 0}")
             if search_results:
-                self.coder.io.tool_output(f"🐛 DEBUG: Results preview: {search_results[:200]}...")
+                self.coder.io.tool_output(f"DEBUG: Results preview: {search_results[:200]}...")
             
             if search_results and not search_results.startswith("No"):
                 self.log_agent_action(
                     "Web Search",
-                    "✅ SEARCH COMPLETED - Found relevant information",
+                    "SEARCH COMPLETED - Found relevant information",
                     f"Successfully retrieved web search results for task implementation"
                 )
                 return search_results
             else:
                 self.log_agent_action(
                     "Web Search",
-                    "⚠️ SEARCH EMPTY - No useful results found",
+                    "SEARCH EMPTY - No useful results found",
                     "Proceeding without additional web context"
                 )
                 return None
                 
         except Exception as e:
-            self.coder.io.tool_output(f"🐛 DEBUG: Search exception: {e}")
-            self.log_agent_action("Web Search", "❌ SEARCH FAILED", str(e))
+            self.coder.io.tool_output(f"DEBUG: Search exception: {e}")
+            self.log_agent_action("Web Search", "SEARCH FAILED", str(e))
             return None
 
     def _generate_search_queries(self, task: Dict[str, Any]) -> List[str]:
@@ -836,7 +836,7 @@ class GeniusAgent:
         self.validation_results = validation_results
         
         # Log results
-        status = "✅ PASSED" if overall_success else "❌ FAILED"
+        status = "PASSED" if overall_success else "FAILED"
         self.log_agent_action(
             "Validation",
             f"Validation complete: {status}",
@@ -890,7 +890,7 @@ class GeniusAgent:
     def generate_report(self) -> str:
         """Generate a comprehensive report of the agent's work"""
         report = [
-            "🤖 Genius Agent Execution Report",
+            "Genius Agent Execution Report",
             "=" * 40,
             f"Task: {self.task}",
             f"Iterations completed: {self.current_iteration}/{self.max_iterations}",
@@ -901,12 +901,12 @@ class GeniusAgent:
         ]
         
         for task in self.completed_tasks:
-            report.append(f"  ✅ {task['name']}")
+            report.append(f"  {task['name']}")
             
         if self.failed_tasks:
             report.append("\nFailed Tasks:")
             for task in self.failed_tasks:
-                report.append(f"  ❌ {task['name']}")
+                report.append(f"  {task['name']}")
         
         if self.validation_results:
             report.extend([
