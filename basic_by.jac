@@ -8,7 +8,13 @@ sem generate_greeting = """
 Generate a friendly greeting for the given name.
 """;
 
-with entry {
-    greeting = generate_greeting(name="Bard");
-    print(greeting);
+test test_greeting {
+    try {
+        greeting = generate_greeting(name="Bard");
+        print(greeting);
+        check greeting != "";
+    } except Exception as e {
+        print(f"Error: {e}");
+        check False; // Force test failure
+    }
 }
