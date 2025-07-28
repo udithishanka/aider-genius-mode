@@ -319,42 +319,42 @@ class GeniusAgent:
         """Get the system prompt for the planning LLM"""
         return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
 
-You should:
-1. Break down complex tasks into smaller, manageable subtasks
-2. Consider dependencies between tasks and order them logically
-3. Account for existing issues in the codebase (lint errors, test failures, etc.)
-4. Prioritize critical fixes (tests, security) before feature work
-5. Ensure tasks are specific and actionable
+            You should:
+            1. Break down complex tasks into smaller, manageable subtasks
+            2. Consider dependencies between tasks and order them logically
+            3. Account for existing issues in the codebase (lint errors, test failures, etc.)
+            4. Prioritize critical fixes (tests, security) before feature work
+            5. Ensure tasks are specific and actionable
 
-Respond with a JSON array of task objects. Each task should have:
-- "name": Clear, descriptive task name
-- "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
-- "priority": Integer (1=highest, 5=lowest priority)
-- "details": Specific description of what needs to be done
-- "dependencies": Array of task names that must complete first (empty array if none)
-- "estimated_effort": "small", "medium", or "large"
-- "file": (optional) Specific file path if the task is file-specific (especially for fix_lint, fix_tests)
+            Respond with a JSON array of task objects. Each task should have:
+            - "name": Clear, descriptive task name
+            - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
+            - "priority": Integer (1=highest, 5=lowest priority)
+            - "details": Specific description of what needs to be done
+            - "dependencies": Array of task names that must complete first (empty array if none)
+            - "estimated_effort": "small", "medium", or "large"
+            - "file": (optional) Specific file path if the task is file-specific (especially for fix_lint, fix_tests)
 
-Example response:
-[
-  {
-    "name": "Fix failing unit tests",
-    "type": "fix_tests", 
-    "priority": 1,
-    "details": "Address test failures in authentication module",
-    "dependencies": [],
-    "estimated_effort": "medium"
-  },
-  {
-    "name": "Fix linting issues in main.py",
-    "type": "fix_lint",
-    "priority": 2,
-    "details": "Fix line length and import ordering issues",
-    "dependencies": [],
-    "estimated_effort": "small",
-    "file": "main.py"
-  }
-]"""
+            Example response:
+            [
+            {
+                "name": "Fix failing unit tests",
+                "type": "fix_tests", 
+                "priority": 1,
+                "details": "Address test failures in authentication module",
+                "dependencies": [],
+                "estimated_effort": "medium"
+            },
+            {
+                "name": "Fix linting issues in main.py",
+                "type": "fix_lint",
+                "priority": 2,
+                "details": "Fix line length and import ordering issues",
+                "dependencies": [],
+                "estimated_effort": "small",
+                "file": "main.py"
+            }
+            ]"""
 
     def _create_planning_prompt(self, repo_context: Dict, issues: List[Dict]) -> str:
         """Create a comprehensive prompt for the planning LLM"""
@@ -598,10 +598,7 @@ Example response:
         return (
             task["type"] in ["feature_implementation", "improvement"] or
             self.last_error_context is not None or
-            "API" in task.get("details", "") or
-            "REST" in task.get("details", "") or
-            "JWT" in task.get("details", "") or
-            "authentication" in task.get("details", "").lower() or
+            "jac" in task.get("details", "").lower() or
             "documentation" in task.get("details", "").lower() or
             "jac language" in task.get("details", "").lower() or
             "create" in task.get("details", "").lower()
