@@ -1175,7 +1175,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         return
 
     if args.genius:
-        from aider.genius_mode import GeniusAgent
+        # from aider.genius import GeniusAgent # _mode
+        from aider.genius import GeniusMode
         
         # Try to get task from multiple sources in order of priority
         task = args.genius_task or args.message
@@ -1207,14 +1208,20 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         elif hasattr(args, 'enable_security_scan'):
             enable_security_scan = args.enable_security_scan
         
-        agent = GeniusAgent(
-            coder=coder, 
-            task=task,  # This will be None if no task was provided
-            max_iterations=args.genius_limit,
-            enable_web_search=enable_web_search,
-            enable_security_scan=enable_security_scan
-        )
-        agent.run()
+        mode = GeniusMode(coder=coder, task=task,
+                         max_iterations=args.genius_limit,
+                         enable_web_search=enable_web_search,
+                         enable_security_scan=enable_security_scan)
+        
+        # agent = GeniusAgent(
+        #     coder=coder, 
+        #     task=task,  # This will be None if no task was provided
+        #     max_iterations=args.genius_limit,
+        #     enable_web_search=enable_web_search,
+        #     enable_security_scan=enable_security_scan
+        # )
+        mode.run()
+        # agent.run()
         analytics.event("exit", reason="genius mode")
         return
         
