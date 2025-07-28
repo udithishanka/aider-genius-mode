@@ -1,8 +1,8 @@
 import json
 import subprocess
 import time
-from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from aider.web_search import create_web_searcher
@@ -80,7 +80,9 @@ class GeniusAgent:
         # Use LLM-based planning to create intelligent task graph
         self.task_graph = self._llm_based_task_planning(repo_context, issues)
 
-        self.coder.io.tool_output(f"🐛 DEBUG: Task graph created with {self.task_graph} tasks")
+        self.coder.io.tool_output(
+            f"🐛 DEBUG: Task graph created with {self.task_graph} tasks"
+        )
 
         # Store context for future reference
         self.context_memory['repo_analysis'] = repo_context
@@ -218,7 +220,9 @@ class GeniusAgent:
         
         # Debug: Show the planning prompt (truncated for readability)
         prompt_preview = planning_prompt[:500] + "..." if len(planning_prompt) > 500 else planning_prompt
-        self.coder.io.tool_output(f"🐛 DEBUG: Planning prompt preview: {prompt_preview}")
+        self.coder.io.tool_output(
+            f"🐛 DEBUG: Planning prompt preview: {prompt_preview}"
+        )
         
         try:
             # Get the planning response from the LLM using the model's send_completion method
@@ -232,8 +236,14 @@ class GeniusAgent:
             
             if planning_response:
                 # Debug: Show the LLM response (truncated for readability)
-                response_preview = planning_response[:500] + "..." if len(planning_response) > 500 else planning_response
-                self.coder.io.tool_output(f"🐛 DEBUG: LLM planning response preview: {response_preview}")
+                response_preview = (
+                    planning_response[:500] + "..."
+                    if len(planning_response) > 500
+                    else planning_response
+                )
+                self.coder.io.tool_output(
+                    f"🐛 DEBUG: LLM planning response preview: {response_preview}"
+                )
                 
                 # Parse the LLM response to extract tasks
                 tasks = self._parse_llm_planning_response(planning_response)
@@ -832,7 +842,8 @@ Example response:
             self.log_agent_action(
                 "Iteration",
                 f"Starting iteration {self.current_iteration}",
-                f"Working through task graph: {len(self.task_graph) - len(self.completed_tasks)} tasks remaining"
+                f"Working through task graph: "
+                f"{len(self.task_graph) - len(self.completed_tasks)} tasks remaining"
             )
             
             # Get next task from graph
