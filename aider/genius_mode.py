@@ -86,22 +86,22 @@ class GeniusAgent:
                 )
                 return False
         
+        # Force refresh the repository map FIRST to get current state
+        if self.coder.repo_map:
+            self.log_agent_action(
+                "Planning",
+                "Refreshing repository map",
+                "Ensuring up-to-date view of current files and structure before analysis"
+            )
+            self.coder.get_repo_map(force_refresh=True)
+        
         self.log_agent_action(
             "Planning", 
             "Analyzing repository structure and dependencies",
             "Building comprehensive understanding of codebase before making changes"
         )
         
-        # Force refresh the repository map to get current state
-        if self.coder.repo_map:
-            self.log_agent_action(
-                "Planning",
-                "Refreshing repository map",
-                "Ensuring up-to-date view of current files and structure"
-            )
-            self.coder.get_repo_map(force_refresh=True)
-        
-        # Gather repository context
+        # Gather repository context (will use the refreshed repo map)
         repo_context = self._gather_repository_context()
 
         # Analyze current issues and opportunities
@@ -164,7 +164,7 @@ class GeniusAgent:
         
         # Get repository map and check for missing files
         if self.coder.repo_map:
-            repo_map = self.coder.get_repo_map(force_refresh=True)
+            repo_map = self.coder.get_repo_map()  # Don't force refresh here since we already did it
             if repo_map:
                 context["repo_map"] = repo_map
                 
@@ -241,7 +241,7 @@ class GeniusAgent:
         """Create a dynamic task graph based on analysis"""
         tasks = []
         
-        # Add the main task first if it's not the default
+        # ALWAYS prioritize the main task first if it's not the default
         if self.task and self.task != "Analyze and improve the codebase":
             tasks.append({
                 "name": self.task,
@@ -250,21 +250,20 @@ class GeniusAgent:
                 "details": self.task
             })
         
-        # Add tasks based on discovered issues
+        # Only add tasks for issues that might block the main task
+        critical_issues = []
         for issue in issues:
-            if issue["type"] == "lint":
+            # Only include issues that are likely to affect new development
+            if issue["type"] == "test" and issue.get("priority") == "high":
+                critical_issues.append(issue)
+            # Skip lint issues for the main task unless they're in files we need to work with
+        
+        for issue in critical_issues:
+            if issue["type"] == "test":
                 tasks.append({
-                    "name": f"Fix linting issues in {Path(issue['file']).name}",
-                    "type": "fix_lint",
-                    "priority": 2,
-                    "file": issue["file"],
-                    "details": issue["details"]
-                })
-            elif issue["type"] == "test":
-                tasks.append({
-                    "name": "Fix failing tests",
-                    "type": "fix_tests",
-                    "priority": 1,
+                    "name": "Fix critical failing tests",
+                    "type": "fix_tests", 
+                    "priority": 2,  # Still secondary to main task
                     "details": issue["details"]
                 })
         
@@ -273,7 +272,7 @@ class GeniusAgent:
             tasks.append({
                 "name": "Improve code quality and documentation",
                 "type": "improvement",
-                "priority": 3,
+                "priority": 1,  # Only priority 1 when it IS the main task
                 "details": "Review and improve code quality, add documentation where needed"
             })
         
@@ -354,27 +353,33 @@ class GeniusAgent:
         """Get the system prompt for the planning LLM"""
         return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
 
+            CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
+
             You should:
-            1. Break down complex tasks into smaller, manageable subtasks
-            2. Consider dependencies between tasks and order them logically
-            3. Account for existing issues in the codebase (lint errors, test failures, etc.)
-            4. Prioritize critical fixes (tests, security) before feature work
+            1. ALWAYS prioritize the user's main task as priority 1
+            2. Break down the main task into smaller, manageable subtasks with priority 1-2
+            3. Only include fixing existing issues (lint, tests) if they directly impact the main task
+            4. Consider dependencies between tasks and order them logically
             5. Ensure tasks are specific and actionable
-            6. For missing files (referenced but don't exist), create tasks to build them from scratch rather than fix them
-            7. When creating new files, focus on "feature_implementation" or "documentation" task types
+            6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
+            7. When creating new files for the main task, focus on "feature_implementation" task types
 
             Respond with a JSON array of task objects. Each task should have:
             - "name": Clear, descriptive task name
             - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
-            - "priority": Integer (1=highest, 5=lowest priority)
+            - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
             - "details": Specific description of what needs to be done
             - "dependencies": Array of task names that must complete first (empty array if none)
             - "estimated_effort": "small", "medium", or "large"
-            - "file": (optional) Specific file path if the task is file-specific (especially for fix_lint, fix_tests)
+            - "file": (optional) Specific file path if the task is file-specific
 
-            IMPORTANT: If a file is listed as "missing" in the context, create tasks to implement/create that file rather than fix it.
+            IMPORTANT: 
+            - The user's main task gets priority 1
+            - Supporting tasks for the main task get priority 2-3
+            - Existing code fixes only get priority 1-2 if they block the main task
+            - Missing files unrelated to main task get priority 4-5 or are excluded
 
-            Example response:
+            Example response for "create a calculator":
             [
             {
                 "name": "Create calculator.jac file with basic structure",
@@ -385,20 +390,21 @@ class GeniusAgent:
                 "estimated_effort": "medium"
             },
             {
-                "name": "Fix linting issues in existing_file.py",
-                "type": "fix_lint",
+                "name": "Implement arithmetic operations in calculator",
+                "type": "feature_implementation",
                 "priority": 2,
-                "details": "Fix line length and import ordering issues",
-                "dependencies": [],
-                "estimated_effort": "small",
-                "file": "existing_file.py"
+                "details": "Add basic arithmetic operations (add, subtract, multiply, divide) to the calculator",
+                "dependencies": ["Create calculator.jac file with basic structure"],
+                "estimated_effort": "medium"
             }
             ]"""
 
     def _create_planning_prompt(self, repo_context: Dict, issues: List[Dict]) -> str:
         """Create a comprehensive prompt for the planning LLM"""
         prompt_parts = [
-            f"MAIN TASK: {self.task}",
+            f"MAIN TASK (HIGHEST PRIORITY): {self.task}",
+            "",
+            "FOCUS: Create a plan that prioritizes completing the main task above all else.",
             "",
             "REPOSITORY CONTEXT:",
         ]
@@ -410,11 +416,13 @@ class GeniusAgent:
                 prompt_parts.append(f"  - {file}")
             prompt_parts.append("")
         
-        # Add missing files information
+        # Add missing files information but emphasize they are low priority
         if repo_context.get("missing_files"):
-            prompt_parts.append("Missing files (referenced but don't exist - need to be created):")
-            for file in repo_context["missing_files"]:
+            prompt_parts.append("Missing files (low priority unless needed for main task):")
+            for file in repo_context["missing_files"][:3]:  # Limit to first 3 to reduce emphasis
                 prompt_parts.append(f"  - {file}")
+            if len(repo_context["missing_files"]) > 3:
+                prompt_parts.append(f"  - ... and {len(repo_context['missing_files']) - 3} more")
             prompt_parts.append("")
         
         # Add repository map if available
@@ -434,9 +442,9 @@ class GeniusAgent:
                 prompt_parts.append(f"  - {file}")
             prompt_parts.append("")
         
-        # Add identified issues
+        # Add identified issues but note they are secondary
         if issues:
-            prompt_parts.append("IDENTIFIED ISSUES:")
+            prompt_parts.append("EXISTING ISSUES (only address if they block the main task):")
             for issue in issues:
                 prompt_parts.append(f"- {issue['type'].upper()}: {issue['description']}")
                 if issue.get('details'):
@@ -449,14 +457,14 @@ class GeniusAgent:
         
         prompt_parts.extend([
             "REQUIREMENTS:",
-            "1. Create a comprehensive plan to complete the main task",
-            "2. Include fixing any identified issues as prerequisite tasks",
-            "3. Break down complex work into logical steps", 
-            "4. Consider dependencies and proper ordering",
-            "5. Be specific about what each task should accomplish",
-            "6. For missing files, create tasks to build them from scratch rather than fix them",
+            "1. PRIORITY 1: Create tasks to complete the main task - this is most important",
+            "2. Break down the main task into logical, implementable steps",
+            "3. Only include existing issue fixes if they directly block the main task",
+            "4. Consider dependencies and proper ordering for the main task",
+            "5. Missing files unrelated to the main task should be low priority or excluded",
+            "6. Be specific about what each task should accomplish for the main goal",
             "",
-            "Please analyze the above context and create an optimal task execution plan as a JSON array:"
+            "Please analyze the above context and create an optimal task execution plan as a JSON array, focusing primarily on the main task:"
         ])
         
         return "\n".join(prompt_parts)
