@@ -3,25 +3,19 @@ import subprocess;
 import time;
 import from pathlib { Path }
 import from typing { Any, Dict, List, Optional, Tuple }
+import from aider.web_search { create_web_searcher }
+
 with entry {
     try {
-        import from aider.web_search { create_web_searcher }
         WEB_SEARCH_AVAILABLE = True;
     } except ImportError {
         WEB_SEARCH_AVAILABLE = False;
         create_web_searcher = None;
     }
 }
-"""
-AI Agent that autonomously plans, codes, validates, and iterates on development tasks.
 
-This implements a sophisticated agent architecture where the AI acts with multiple phases:
-- Planning: Analyzes the codebase and creates a task graph
-- Editing/Code Generation: Generates and edits code based on planning
-- Code Execution/Validation: Runs tests, lints, and security scans
-- Web Search for Updates: Searches for additional context when needed
-- Feedback Loop: Uses validation results to improve next iteration
-"""
+
+"""AI Agent that autonomously plans, codes, validates, and iterates on development tasks."""
 class GeniusAgent {
     def __init__(
         self: Any,
@@ -54,6 +48,7 @@ class GeniusAgent {
         self.needs_web_search = False;
         self.last_error_context = None;
     }
+
     """Enhanced logging for agent actions with structured data"""
     def log_agent_action(
         self: Any,
@@ -62,61 +57,40 @@ class GeniusAgent {
         reasoning: str,
         details: Optional[Dict] = None
     ) {
-        self.coder.io.tool_output(f" 'Genius Agent - Phase: ' {phase} ");
-        self.coder.io.tool_output(f" '   Action: ' {action} ");
-        self.coder.io.tool_output(f" '   Reasoning: ' {reasoning} ");
-        if details {
-            for (key, value) in details.items() {
-                self.coder.io.tool_output(f" '   ' {key} ': ' {value} ");
-            }
-        }
+        self.coder.io.tool_output(f" 'Genius Agent - Phase: ' {phase} ' | Action: ' {action} ' | Reasoning: ' {reasoning} ");
+        # if details {
+        #     for (key, value) in details.items() {
+        #         self.coder.io.tool_output(f" '   ' {key} ': ' {value} ");
+        #     }
+        # }
         self.coder.io.tool_output('');
     }
-    """
-    Advanced planning phase that uses LLM to analyze the repository and creates a dynamic task graph.
-    """
+
+    """Advanced planning phase that uses LLM to analyze the repository and creates a dynamic task graph."""
     def planning_phase(self: Any) -> bool {
         if not self.task_explicitly_provided {
             user_task = self._get_task_from_user();
             if user_task {
                 self.task = user_task;
                 self.task_explicitly_provided = True;
-                self.log_agent_action(
-                    'Planning',
-                    'User task received',
-                    f" 'Updated task to: ' {self.task} "
-                );
+                self.log_agent_action('Planning', 'User task received', f" 'Updated task to: ' {self.task} ");
             } else {
-                self.log_agent_action(
-                    'Planning',
-                    'No task provided by user',
-                    'Cannot proceed without a specific task'
-                );
+                self.log_agent_action('Planning','No task provided by user','Cannot proceed without a specific task');
                 return False;
             }
         }
         if self.coder.repo_map {
-            self.log_agent_action(
-                'Planning',
-                'Refreshing repository map',
-                'Ensuring up-to-date view of current files and structure before analysis'
-            );
+            self.log_agent_action('Planning', 'Refreshing repository map', 'Ensuring up-to-date view of current files and structure before analysis');
             self.coder.get_repo_map(force_refresh=True);
         }
-        self.log_agent_action(
-            'Planning',
-            'Analyzing repository structure and dependencies',
-            'Building comprehensive understanding of codebase before making changes'
-        );
+
+        self.log_agent_action('Planning', 'Analyzing repository structure and dependencies', 'Building comprehensive understanding of codebase before making changes');
         repo_context = self._gather_repository_context();
         issues = self._analyze_current_issues();
         self.task_graph = self._llm_based_task_planning(repo_context, issues);
         self.context_memory['repo_analysis'] = repo_context;
         self.context_memory['identified_issues'] = issues;
-        self.log_agent_action(
-            'Planning',
-            'LLM-generated task graph created',
-            f" 'Generated ' {len(self.task_graph)} ' prioritized tasks using intelligent planning' ",
+        self.log_agent_action('Planning', 'LLM-generated task graph created', f" 'Generated ' {len(self.task_graph)} ' prioritized tasks using intelligent planning' ",
             {'tasks' : [ task['name'] for task in self.task_graph ] }
         );
         self.planning_complete = True;
