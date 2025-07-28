@@ -53,7 +53,7 @@ class GeniusAgent:
 
     def log_agent_action(self, phase: str, action: str, reasoning: str, details: Optional[Dict] = None):
         """Enhanced logging for agent actions with structured data"""
-        self.coder.io.tool_output(f"🤖 Genius Agent - Phase: {phase}")
+        self.coder.io.tool_output(f"Genius Agent - Phase: {phase}")
         self.coder.io.tool_output(f"   Action: {action}")
         self.coder.io.tool_output(f"   Reasoning: {reasoning}")
         if details:
@@ -63,7 +63,7 @@ class GeniusAgent:
 
     def planning_phase(self) -> bool:
         """
-        Advanced planning phase that analyzes the repository and creates a dynamic task graph.
+        Advanced planning phase that uses LLM to analyze the repository and creates a dynamic task graph.
         """
         self.log_agent_action(
             "Planning", 
@@ -73,21 +73,23 @@ class GeniusAgent:
         
         # Gather repository context
         repo_context = self._gather_repository_context()
-        
+
         # Analyze current issues and opportunities
         issues = self._analyze_current_issues()
         
-        # Create dynamic task graph
-        self.task_graph = self._create_task_graph(repo_context, issues)
-        
+        # Use LLM-based planning to create intelligent task graph
+        self.task_graph = self._llm_based_task_planning(repo_context, issues)
+
+        self.coder.io.tool_output(f"🐛 DEBUG: Task graph created with {self.task_graph} tasks")
+
         # Store context for future reference
         self.context_memory['repo_analysis'] = repo_context
         self.context_memory['identified_issues'] = issues
         
         self.log_agent_action(
             "Planning",
-            "Task graph created",
-            f"Generated {len(self.task_graph)} prioritized tasks",
+            "LLM-generated task graph created",
+            f"Generated {len(self.task_graph)} prioritized tasks using intelligent planning",
             {"tasks": [task["name"] for task in self.task_graph]}
         )
         
@@ -201,6 +203,257 @@ class GeniusAgent:
         
         return tasks
 
+    def _llm_based_task_planning(self, repo_context: Dict, issues: List[Dict]) -> List[Dict[str, Any]]:
+        """
+        Use LLM to analyze the task and repository context to create an intelligent task plan.
+        """
+        self.log_agent_action(
+            "LLM Planning",
+            "Consulting planning model for intelligent task breakdown",
+            f"Using {self.planning_model.name} to analyze task and create execution plan"
+        )
+        
+        # Prepare context for the LLM
+        planning_prompt = self._create_planning_prompt(repo_context, issues)
+        
+        # Debug: Show the planning prompt (truncated for readability)
+        prompt_preview = planning_prompt[:500] + "..." if len(planning_prompt) > 500 else planning_prompt
+        self.coder.io.tool_output(f"🐛 DEBUG: Planning prompt preview: {prompt_preview}")
+        
+        try:
+            # Get the planning response from the LLM using the model's send_completion method
+            messages = [
+                {"role": "system", "content": self._get_planning_system_prompt()},
+                {"role": "user", "content": planning_prompt}
+            ]
+            
+            # Use the model's simple_send_with_retries method for a straightforward completion
+            planning_response = self.planning_model.simple_send_with_retries(messages)
+            
+            if planning_response:
+                # Debug: Show the LLM response (truncated for readability)
+                response_preview = planning_response[:500] + "..." if len(planning_response) > 500 else planning_response
+                self.coder.io.tool_output(f"🐛 DEBUG: LLM planning response preview: {response_preview}")
+                
+                # Parse the LLM response to extract tasks
+                tasks = self._parse_llm_planning_response(planning_response)
+                
+                self.log_agent_action(
+                    "LLM Planning",
+                    "Planning completed successfully",
+                    f"LLM generated {len(tasks)} strategic tasks",
+                    {"planning_response_length": len(planning_response)}
+                )
+                
+                return tasks
+            else:
+                self.log_agent_action(
+                    "LLM Planning",
+                    "No response from planning model",
+                    "Falling back to rule-based planning"
+                )
+                
+        except Exception as e:
+            self.log_agent_action(
+                "LLM Planning",
+                "Planning model failed",
+                f"Error: {str(e)} - Falling back to rule-based planning"
+            )
+        
+        # Fallback to original method if LLM planning fails
+        return self._create_task_graph(repo_context, issues)
+
+    def _get_planning_system_prompt(self) -> str:
+        """Get the system prompt for the planning LLM"""
+        return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
+
+You should:
+1. Break down complex tasks into smaller, manageable subtasks
+2. Consider dependencies between tasks and order them logically
+3. Account for existing issues in the codebase (lint errors, test failures, etc.)
+4. Prioritize critical fixes (tests, security) before feature work
+5. Ensure tasks are specific and actionable
+
+Respond with a JSON array of task objects. Each task should have:
+- "name": Clear, descriptive task name
+- "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
+- "priority": Integer (1=highest, 5=lowest priority)
+- "details": Specific description of what needs to be done
+- "dependencies": Array of task names that must complete first (empty array if none)
+- "estimated_effort": "small", "medium", or "large"
+- "file": (optional) Specific file path if the task is file-specific (especially for fix_lint, fix_tests)
+
+Example response:
+[
+  {
+    "name": "Fix failing unit tests",
+    "type": "fix_tests", 
+    "priority": 1,
+    "details": "Address test failures in authentication module",
+    "dependencies": [],
+    "estimated_effort": "medium"
+  },
+  {
+    "name": "Fix linting issues in main.py",
+    "type": "fix_lint",
+    "priority": 2,
+    "details": "Fix line length and import ordering issues",
+    "dependencies": [],
+    "estimated_effort": "small",
+    "file": "main.py"
+  }
+]"""
+
+    def _create_planning_prompt(self, repo_context: Dict, issues: List[Dict]) -> str:
+        """Create a comprehensive prompt for the planning LLM"""
+        prompt_parts = [
+            f"MAIN TASK: {self.task}",
+            "",
+            "REPOSITORY CONTEXT:",
+        ]
+        
+        # Add files in chat
+        if repo_context.get("files_in_chat"):
+            prompt_parts.append("Files currently being worked on:")
+            for file in repo_context["files_in_chat"]:
+                prompt_parts.append(f"  - {file}")
+            prompt_parts.append("")
+        
+        # Add repository map if available
+        if repo_context.get("repo_map"):
+            prompt_parts.append("Repository structure:")
+            # Truncate repo map if too long
+            repo_map = str(repo_context["repo_map"])
+            if len(repo_map) > 2000:
+                repo_map = repo_map[:2000] + "... [truncated]"
+            prompt_parts.append(repo_map)
+            prompt_parts.append("")
+        
+        # Add git status
+        if repo_context.get("git_status"):
+            prompt_parts.append("Git status (dirty files):")
+            for file in repo_context["git_status"]:
+                prompt_parts.append(f"  - {file}")
+            prompt_parts.append("")
+        
+        # Add identified issues
+        if issues:
+            prompt_parts.append("IDENTIFIED ISSUES:")
+            for issue in issues:
+                prompt_parts.append(f"- {issue['type'].upper()}: {issue['description']}")
+                if issue.get('details'):
+                    # Truncate details if too long
+                    details = str(issue['details'])
+                    if len(details) > 500:
+                        details = details[:500] + "... [truncated]"
+                    prompt_parts.append(f"  Details: {details}")
+            prompt_parts.append("")
+        
+        prompt_parts.extend([
+            "REQUIREMENTS:",
+            "1. Create a comprehensive plan to complete the main task",
+            "2. Include fixing any identified issues as prerequisite tasks",
+            "3. Break down complex work into logical steps", 
+            "4. Consider dependencies and proper ordering",
+            "5. Be specific about what each task should accomplish",
+            "",
+            "Please analyze the above context and create an optimal task execution plan as a JSON array:"
+        ])
+        
+        return "\n".join(prompt_parts)
+
+    def _parse_llm_planning_response(self, response: str) -> List[Dict[str, Any]]:
+        """Parse the LLM's planning response and convert to task objects"""
+        try:
+            # Try to extract JSON from the response
+            import re
+            
+            # Look for JSON array in the response
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                tasks_data = json.loads(json_str)
+                
+                # Validate and convert to our task format
+                tasks = []
+                for i, task_data in enumerate(tasks_data):
+                    # Ensure required fields exist
+                    task = {
+                        "name": task_data.get("name", f"Task {i+1}"),
+                        "type": task_data.get("type", "improvement"),
+                        "priority": task_data.get("priority", 3),
+                        "details": task_data.get("details", ""),
+                        "dependencies": task_data.get("dependencies", []),
+                        "estimated_effort": task_data.get("estimated_effort", "medium")
+                    }
+                    
+                    # Add any file-specific data for lint/test tasks
+                    if "file" in task_data:
+                        task["file"] = task_data["file"]
+                    elif task["type"] == "fix_lint":
+                        # For lint tasks without specific file, try to infer from context
+                        # Use the first file in chat as a reasonable default
+                        if hasattr(self, 'context_memory') and self.context_memory.get('repo_analysis', {}).get('files_in_chat'):
+                            task["file"] = self.context_memory['repo_analysis']['files_in_chat'][0]
+                    
+                    tasks.append(task)
+                
+                # Sort tasks by priority and dependencies
+                tasks = self._resolve_task_dependencies(tasks)
+                
+                return tasks
+            
+        except (json.JSONDecodeError, Exception) as e:
+            self.log_agent_action(
+                "LLM Planning",
+                "Failed to parse LLM response",
+                f"JSON parsing error: {str(e)}"
+            )
+        
+        # If parsing fails, create a simple fallback task
+        return [{
+            "name": self.task if self.task != "Analyze and improve the codebase" else "Improve codebase",
+            "type": "feature_implementation" if self.task != "Analyze and improve the codebase" else "improvement",
+            "priority": 1,
+            "details": self.task,
+            "dependencies": [],
+            "estimated_effort": "medium"
+        }]
+
+    def _resolve_task_dependencies(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort tasks by dependencies and priority"""
+        # Create a mapping of task names to tasks
+        task_map = {task["name"]: task for task in tasks}
+        
+        # Simple topological sort based on dependencies
+        resolved = []
+        remaining = tasks.copy()
+        
+        while remaining:
+            # Find tasks with no unresolved dependencies
+            ready_tasks = []
+            for task in remaining:
+                deps_resolved = all(
+                    dep_name in [t["name"] for t in resolved] 
+                    for dep_name in task.get("dependencies", [])
+                )
+                if deps_resolved:
+                    ready_tasks.append(task)
+            
+            if not ready_tasks:
+                # If no tasks are ready, break dependency cycle by taking highest priority
+                ready_tasks = [min(remaining, key=lambda x: x["priority"])]
+            
+            # Sort ready tasks by priority
+            ready_tasks.sort(key=lambda x: x["priority"])
+            
+            # Add to resolved and remove from remaining
+            for task in ready_tasks:
+                resolved.append(task)
+                remaining.remove(task)
+        
+        return resolved
+
     def editing_code_generation_phase(self, task: Dict[str, Any]) -> bool:
         """
         Enhanced editing phase that generates/edits code based on current task.
@@ -235,7 +488,11 @@ class GeniusAgent:
         base_message = f"Task: {task['name']}\n\n"
         
         if task["type"] == "fix_lint":
-            base_message += f"Please fix the following linting issues in {task['file']}:\n"
+            # Handle both LLM-generated tasks (may not have file) and rule-based tasks (have file)
+            if task.get('file'):
+                base_message += f"Please fix the following linting issues in {task['file']}:\n"
+            else:
+                base_message += "Please fix the following linting issues:\n"
             base_message += f"```\n{task['details']}\n```\n"
             base_message += "Focus on fixing the specific issues without changing unrelated code."
             
@@ -254,6 +511,23 @@ class GeniusAgent:
             base_message += "- Improve code readability and structure\n"
             base_message += "- Add type hints where appropriate\n"
             base_message += "- Ensure consistent coding style\n"
+        
+        elif task["type"] == "fix_security":
+            base_message += "Please fix the following security issues:\n"
+            base_message += f"```\n{task['details']}\n```\n"
+            base_message += "Address the security vulnerabilities while maintaining functionality."
+        
+        elif task["type"] == "refactor":
+            base_message += f"Please refactor the code as described:\n{task['details']}\n"
+            base_message += "Maintain existing functionality while improving code structure."
+        
+        elif task["type"] == "documentation":
+            base_message += f"Please add or improve documentation:\n{task['details']}\n"
+            base_message += "Focus on clear, helpful documentation that explains the code's purpose and usage."
+        
+        else:
+            # Generic fallback for any other task types
+            base_message += f"Please complete the following task:\n{task['details']}\n"
         
         # Add context from previous failures if any
         if self.last_error_context:
