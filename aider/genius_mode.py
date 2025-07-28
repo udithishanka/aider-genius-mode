@@ -65,6 +65,25 @@ class GeniusAgent:
         """
         Advanced planning phase that uses LLM to analyze the repository and creates a dynamic task graph.
         """
+        # Always check if we need to get a task from the user when using default task
+        if self.task == "Analyze and improve the codebase":
+            user_task = self._get_task_from_user()
+            if user_task:
+                self.task = user_task
+                self.log_agent_action(
+                    "Planning",
+                    "User task received",
+                    f"Updated task to: {self.task}"
+                )
+            else:
+                # No task provided, cannot proceed
+                self.log_agent_action(
+                    "Planning",
+                    "No task provided by user",
+                    "Cannot proceed without a specific task"
+                )
+                return False
+        
         self.log_agent_action(
             "Planning", 
             "Analyzing repository structure and dependencies",
@@ -97,6 +116,33 @@ class GeniusAgent:
         
         self.planning_complete = True
         return len(self.task_graph) > 0
+
+    def _get_task_from_user(self) -> Optional[str]:
+        """Get a task description from the user via input prompt"""
+        try:
+            self.coder.io.tool_output("🤖 Genius Agent: A specific task is required to proceed.")
+            self.coder.io.tool_output("Please describe what you'd like me to work on:")
+            self.coder.io.tool_output("(Ctrl+C to cancel)")
+            
+            # Use the coder's IO to get user input
+            user_input = input("\n> ").strip()
+            
+            if user_input:
+                return user_input
+            else:
+                self.coder.io.tool_output("❌ No task provided. Cannot proceed without a specific task.")
+                return None
+                
+        except (KeyboardInterrupt, EOFError):
+            self.coder.io.tool_output("\n🚫 Task input cancelled by user.")
+            return None
+        except Exception as e:
+            self.log_agent_action(
+                "Planning",
+                "Failed to get user input",
+                f"Error: {str(e)} - Cannot proceed without task"
+            )
+            return None
 
     def _gather_repository_context(self) -> Dict[str, Any]:
         """Gather comprehensive repository context"""
