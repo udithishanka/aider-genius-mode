@@ -99,10 +99,6 @@ class GeniusAgent:
         # Use LLM-based planning to create intelligent task graph
         self.task_graph = self._llm_based_task_planning(repo_context, issues)
 
-        self.coder.io.tool_output(
-            f"🐛 DEBUG: Task graph created with {self.task_graph} tasks"
-        )
-
         # Store context for future reference
         self.context_memory['repo_analysis'] = repo_context
         self.context_memory['identified_issues'] = issues
@@ -120,7 +116,7 @@ class GeniusAgent:
     def _get_task_from_user(self) -> Optional[str]:
         """Get a task description from the user via input prompt"""
         try:
-            self.coder.io.tool_output("🤖 Genius Agent: A specific task is required to proceed.")
+            self.coder.io.tool_output("Genius Agent: A specific task is required to proceed.")
             self.coder.io.tool_output("Please describe what you'd like me to work on:")
             self.coder.io.tool_output("(Ctrl+C to cancel)")
             
@@ -130,11 +126,11 @@ class GeniusAgent:
             if user_input:
                 return user_input
             else:
-                self.coder.io.tool_output("❌ No task provided. Cannot proceed without a specific task.")
+                self.coder.io.tool_output("No task provided. Cannot proceed without a specific task.")
                 return None
                 
         except (KeyboardInterrupt, EOFError):
-            self.coder.io.tool_output("\n🚫 Task input cancelled by user.")
+            self.coder.io.tool_output("\nTask input cancelled by user.")
             return None
         except Exception as e:
             self.log_agent_action(
@@ -267,7 +263,7 @@ class GeniusAgent:
         # Debug: Show the planning prompt (truncated for readability)
         prompt_preview = planning_prompt[:500] + "..." if len(planning_prompt) > 500 else planning_prompt
         self.coder.io.tool_output(
-            f"🐛 DEBUG: Planning prompt preview: {prompt_preview}"
+            f"DEBUG: Planning prompt preview: {prompt_preview}"
         )
         
         try:
@@ -288,7 +284,7 @@ class GeniusAgent:
                     else planning_response
                 )
                 self.coder.io.tool_output(
-                    f"🐛 DEBUG: LLM planning response preview: {response_preview}"
+                    f"DEBUG: LLM planning response preview: {response_preview}"
                 )
                 
                 # Parse the LLM response to extract tasks
