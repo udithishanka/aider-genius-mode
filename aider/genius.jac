@@ -139,24 +139,23 @@ node PlanningNode {
         return issues;
     }
 
-    """Perform background research to gather additional context"""
-    def background_research(task_description:str) -> str by self.planning_model(method="ReAct", tools=[web_search]);
+    # """Perform background research to gather additional context"""
+    # def background_research(task_description:str) -> str by self.planning_model(method="ReAct", tools=[web_search]);
 
     """ Generate specific implementation instructions for the user's task, focusing on exact code structure and technologies to use."""
-    def generate_plan(task_description: str, repo_context: str, issues_context: str, web_scraped_info: str) -> List[Plan] by self.planning_model(method="Reason");
+    def generate_plan(task_description: str, repo_context: str, issues_context: str) -> List[Plan] by self.planning_model(method="Reason"); 
 
     """Use LLM to analyze the task and repository context to create an intelligent task plan."""
     def llm_based_task_planning(task: str, repo_context: Dict, issues: List[Dict], planning_model: Any, coder: Any) -> List[Dict] {
         print(f"Consulting planning model for intelligent task breakdown");
         
         try {
-            # Call the MTLLM function which returns structured Plan objects
-            web_scraped_info = self.background_research(task);
-            plan_objects = self.generate_plan(task, str(repo_context), str(issues), web_scraped_info);
+            # web_scraped_info = self.background_research(task);
+            print(f"Background research results: {web_scraped_info}");
+            plan_objects = self.generate_plan(task, str(repo_context), str(issues)); # , web_scraped_info
             print(f"Planning response: {plan_objects}");
             
             if plan_objects {
-                # Convert Plan objects to dictionaries for compatibility
                 tasks = [];
                 for plan in plan_objects {
                     task_dict = {
@@ -175,7 +174,7 @@ node PlanningNode {
                 
                 print(f"Generated {len(tasks)} structured tasks");
                 
-                # Sort by priority (no need for complex dependency resolution since LLM handles this)
+                # Sort by priority
                 def get_priority(task: dict) -> int {
                     return task['priority'];
                 }
@@ -440,6 +439,7 @@ node EditorNode {
     has status: str = "pending";
     has current_task: dict = {};
     has web_context: Optional[str] = None;
+    has editor_model: Optional[Model] = None;
     
     """Prepare a context-aware message for the current task"""
     def prepare_task_message(task: Dict, last_error_context: Optional[str] = None) -> str {
@@ -518,7 +518,10 @@ node EditorNode {
                 'jac language' in task.get('details', '').lower() or
                 'create' in task.get('details', '').lower());
     }
-    
+
+    """Determine if web search would be helpful for this task"""
+    def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None, web_searcher_available:bool) -> bool by self.editor_llm();
+
     """Generate relevant search queries for the task"""
     def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
         queries = [];
@@ -583,7 +586,7 @@ node EditorNode {
             return None;
         }
         
-        print(f"🔍 STARTING WEB SEARCH - {len(search_queries)} queries");
+        print(f"STARTING WEB SEARCH - {len(search_queries)} queries");
         print("Gathering additional information to improve implementation quality");
         
         try {
@@ -745,6 +748,7 @@ walker GeniusAgent {
     has enable_web_search: bool = True;
     has enable_security_scan: bool = True;
     has planning_model: Any = None;
+    has editor_model: Any = None;
     has web_searcher: Any = None;
     has current_iteration: int = 0;
     has completed_tasks: list = [];
@@ -765,11 +769,12 @@ walker GeniusAgent {
         
         # Set planning model
         # self.planning_model = self.planning_model or self.coder.main_model;
-        self.planning_model = Model(model_name="gpt-4.1-mini", verbose=True);
+        self.planning_model = Model(model_name="gpt-4.1-mini");
+        self.editor_model = Model(model_name="gpt-4.1-mini");
         
         # Create the workflow graph
         planning_node = PlanningNode(task=self.task, status="pending", planning_model=self.planning_model);
-        editor_node = EditorNode(file_path="", content="", changes=[], status="pending");
+        editor_node = EditorNode(file_path="", content="", changes=[], status="pending", editor_model=self.editor_model);
         validator_node = ValidatorNode(file_path="", issues=[], status="pending");
         
         # Connect the workflow
