@@ -15,13 +15,6 @@ with entry {
     }
 }
 
-"""Genius Agent for advanced AI coding tasks using Object-Spatial Programming"""
-
-# Terminal node for end of graph traversal
-node EndNode {}
-glob END = EndNode();
-
-# Node types for different phases
 node PlanningNode {
     has task: str = "";
     has status: str = "pending";
@@ -686,7 +679,11 @@ node ValidatorNode {
     }
 }
 
-# Main walker that traverses the graph and executes tasks
+# Terminal node for end of graph traversal
+node EndNode {}
+glob END = EndNode();
+
+"""Genius Agent for advanced AI coding tasks using Object-Spatial Programming"""
 walker GeniusAgent {
     has coder: Any;
     has task: str = "Analyze and improve the codebase";
