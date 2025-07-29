@@ -37,6 +37,7 @@ walker TaskManager {
     action create_task(description: str) -> Task {
         # Generate unique id based on current number of tasks
         let new_id = len(self.tasks) + 1
+        # Create new task object spatially organized
         let new_task = Task(new_id, description)
         self.tasks.append(new_task)
         return new_task
