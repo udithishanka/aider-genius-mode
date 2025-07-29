@@ -6,10 +6,9 @@ def get_number(prompt):
             print("Invalid input. Please enter a valid number.")
 
 def get_operator():
-    valid_operators = ['+', '-', '*', '/']
     while True:
-        op = input("Enter an operator (+, -, *, /): ").strip()
-        if op in valid_operators:
+        op = input("Enter an operator (+, -, *, /): ")
+        if op in ('+', '-', '*', '/'):
             return op
         else:
             print("Invalid operator. Please enter one of +, -, *, /.")
@@ -29,7 +28,6 @@ def calculate(num1, num2, operator):
 
 def main():
     print("Simple Calculator")
-    print("-----------------")
     while True:
         num1 = get_number("Enter the first number: ")
         operator = get_operator()
