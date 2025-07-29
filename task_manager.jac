@@ -65,6 +65,20 @@ walker TaskManager {
         return false
     }
 
+    # Get task status by id: pending, completed, or overdue
+    action get_task_status(task_id: int) -> str {
+        for task in self.tasks {
+            if task.id == task_id {
+                if task.completed {
+                    return "completed"
+                }
+                # For demonstration, no overdue logic implemented, return pending
+                return "pending"
+            }
+        }
+        return "not_found"
+    }
+
     # Get all tasks with their statuses
     action list_tasks() -> list {
         return self.tasks
