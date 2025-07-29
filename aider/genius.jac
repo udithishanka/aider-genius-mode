@@ -894,7 +894,7 @@ walker GeniusAgent {
             message = here.prepare_task_message(current_task, self.last_error_context);
             
             # Perform web search if beneficial
-            if self.enable_web_search and here.need_web_search(current_task, self.web_searcher, self.last_error_context) {
+            if self.enable_web_search { # and here.need_web_search(current_task, self.web_searcher, self.last_error_context) 
                 web_context = here.perform_web_search(current_task, self.web_searcher, self.coder, self.last_error_context);
                 if web_context {
                     message += f"\n\nAdditional context from web search:\n{web_context}";
