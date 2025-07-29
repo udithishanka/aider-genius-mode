@@ -151,7 +151,7 @@ node PlanningNode {
         
         try {
             # web_scraped_info = self.background_research(task);
-            print(f"Background research results: {web_scraped_info}");
+            # print(f"Background research results: {web_scraped_info}");
             plan_objects = self.generate_plan(task, str(repo_context), str(issues)); # , web_scraped_info
             print(f"Planning response: {plan_objects}");
             
@@ -505,22 +505,22 @@ node EditorNode {
         return base_message;
     }
     
-    """Determine if web search would be helpful for this task"""
-    def should_search_web(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool {
-        if not web_searcher or not web_searcher.is_available() {
-            return False;
-        }
+    # """Determine if web search would be helpful for this task"""
+    # def should_search_web(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool {
+    #     if not web_searcher or not web_searcher.is_available() {
+    #         return False;
+    #     }
         
-        return (task['type'] in ['feature_implementation', 'improvement'] or
-                last_error_context is not None or
-                'jac' in task.get('details', '').lower() or
-                'documentation' in task.get('details', '').lower() or
-                'jac language' in task.get('details', '').lower() or
-                'create' in task.get('details', '').lower());
-    }
+    #     return (task['type'] in ['feature_implementation', 'improvement'] or
+    #             last_error_context is not None or
+    #             'jac' in task.get('details', '').lower() or
+    #             'documentation' in task.get('details', '').lower() or
+    #             'jac language' in task.get('details', '').lower() or
+    #             'create' in task.get('details', '').lower());
+    # }
 
-    """Determine if web search would be helpful for this task"""
-    def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None, web_searcher_available:bool) -> bool by self.editor_llm();
+    """Determine if web search is required for this task"""
+    def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool by self.editor_model();
 
     """Generate relevant search queries for the task"""
     def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
@@ -894,7 +894,7 @@ walker GeniusAgent {
             message = here.prepare_task_message(current_task, self.last_error_context);
             
             # Perform web search if beneficial
-            if self.enable_web_search and here.should_search_web(current_task, self.web_searcher, self.last_error_context) {
+            if self.enable_web_search and here.need_web_search(current_task, self.web_searcher, self.last_error_context) {
                 web_context = here.perform_web_search(current_task, self.web_searcher, self.coder, self.last_error_context);
                 if web_context {
                     message += f"\n\nAdditional context from web search:\n{web_context}";
