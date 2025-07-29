@@ -39,6 +39,7 @@ walker TaskManager {
         let new_id = len(self.tasks) + 1
         # Create new task object spatially organized
         let new_task = Task(new_id, description)
+        # Insert task spatially (simulate spatial organization)
         self.tasks.append(new_task)
         return new_task
     }
