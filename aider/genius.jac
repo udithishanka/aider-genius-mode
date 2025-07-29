@@ -5,6 +5,7 @@ import re;
 import from pathlib { Path }
 import from typing { Any, Dict, List, Optional, Tuple }
 import from aider.web_search { create_web_searcher }
+import from mtllm {Model}
 
 with entry {
     try {
@@ -23,6 +24,7 @@ node PlanningNode {
     has task_graph: list = [];
     has repo_context: dict = {};
     has issues: list = [];
+    has planning_model: Optional[Model] = None;
     
     """Enhanced logging for agent actions with structured data"""
     def log_agent_action(phase: str, action: str, reasoning: str, details: Optional[Dict] = None) {
@@ -69,6 +71,7 @@ node PlanningNode {
             }
         }
         
+        # print(f"Gathered repository context: {context}");
         return context;
     }
     
@@ -111,62 +114,8 @@ node PlanningNode {
             }
         }
         
+        print(f"Identified issues in codebase: {issues}");
         return issues;
-    }
-    
-    """Use LLM to analyze the task and repository context to create an intelligent task plan."""
-    def llm_based_task_planning(task: str, repo_context: Dict, issues: List[Dict], planning_model: Any, coder: Any) -> List[Dict] {
-        print(f"Consulting planning model for intelligent task breakdown using {planning_model.name}");
-        
-        planning_prompt = self.create_planning_prompt(task, repo_context, issues);
-        
-        try {
-            messages = [{"role": "user", "content": planning_prompt}];
-            planning_response = planning_model.simple_send_with_retries(messages);
-            
-            if planning_response {
-                tasks = self.parse_llm_planning_response(planning_response);
-                if tasks {
-                    return self.resolve_task_dependencies(tasks);
-                }
-            }
-        } except Exception as e {
-            print(f"LLM planning failed: {str(e)}");
-        }
-        
-        # Fallback to simple task creation
-        return self.create_simple_task_graph(task, repo_context, issues);
-    }
-    
-    """Get the system prompt for the planning LLM"""
-    def get_planning_system_prompt() -> str {
-        return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
-
-        CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
-
-        You should:
-        1. ALWAYS prioritize the user's main task as priority 1
-        2. Break down the main task into smaller, manageable subtasks with priority 1-2
-        3. Only include fixing existing issues (lint, tests) if they directly impact the main task
-        4. Consider dependencies between tasks and order them logically
-        5. Ensure tasks are specific and actionable
-        6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
-        7. When creating new files for the main task, focus on "feature_implementation" task types
-
-        Respond with a JSON array of task objects. Each task should have:
-        - "name": Clear, descriptive task name
-        - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
-        - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
-        - "details": Specific description of what needs to be done
-        - "dependencies": Array of task names that must complete first (empty array if none)
-        - "estimated_effort": "small", "medium", or "large"
-        - "file": (optional) Specific file path if the task is file-specific
-
-        IMPORTANT:
-        - The user's main task gets priority 1
-        - Supporting tasks for the main task get priority 2-3
-        - Existing code fixes only get priority 1-2 if they block the main task
-        - Missing files unrelated to main task get priority 4-5 or are excluded""";
     }
     
     """Create a comprehensive prompt for the planning LLM"""
@@ -238,7 +187,7 @@ node PlanningNode {
         
         return "\n".join(prompt_parts);
     }
-    
+
     """Parse the LLM's planning response and convert to task objects"""
     def parse_llm_planning_response(response: str) -> List[Dict] {
         try {
@@ -266,6 +215,113 @@ node PlanningNode {
         }
         
         return [];
+    }
+
+    """Sort tasks by dependencies and priority"""
+    def resolve_task_dependencies(tasks: List[Dict]) -> List[Dict] {
+        task_map = {task['name']: task for task in tasks};
+        resolved = [];
+        remaining = tasks.copy();
+        
+        while remaining {
+            ready_tasks = [];
+            for task in remaining {
+                deps = task.get('dependencies', []);
+                resolved_names = [t['name'] for t in resolved];
+                deps_satisfied = True;
+                for dep in deps {
+                    if dep not in resolved_names {
+                        deps_satisfied = False;
+                        break;
+                    }
+                }
+                if deps_satisfied {
+                    ready_tasks.append(task);
+                }
+            }
+            
+            if not ready_tasks {
+                # Break circular dependencies by taking the highest priority task
+                min_priority = min([task['priority'] for task in remaining]);
+                for task in remaining {
+                    if task['priority'] == min_priority {
+                        ready_tasks = [task];
+                        break;
+                    }
+                }
+            }
+            
+            # Sort ready tasks by priority
+            def get_task_priority(task: dict) -> int {
+                return task['priority'];
+            }
+            ready_tasks = sorted(ready_tasks, key=get_task_priority);
+            for task in ready_tasks {
+                resolved.append(task);
+                remaining.remove(task);
+            }
+        }
+        
+        return resolved;
+    }
+
+    """ Generate specific implementation instructions for the user's task, focusing on exact code structure and technologies to use."""
+    def generate_plan(task_description: str, repo_context: str, issues_context: str) -> str by self.planning_model(method="Reason");
+
+    """Use LLM to analyze the task and repository context to create an intelligent task plan."""
+    def llm_based_task_planning(task: str, repo_context: Dict, issues: List[Dict], planning_model: Any, coder: Any) -> List[Dict] {
+        print(f"Consulting planning model for intelligent task breakdown");
+        
+        planning_prompt = self.create_planning_prompt(task, repo_context, issues);
+
+        try {
+            messages = [{"role": "user", "content": planning_prompt}];
+            # planning_response = planning_model.simple_send_with_retries(messages);
+            planning_response = self.generate_plan(task, str(repo_context), str(issues));
+            print(f"Planning response: {planning_response}");
+            if planning_response {
+                tasks = self.parse_llm_planning_response(planning_response);
+                if tasks {
+                    return self.resolve_task_dependencies(tasks);
+                }
+            }
+        } except Exception as e {
+            print(f"LLM planning failed: {str(e)}");
+        }
+        
+        # Fallback to simple task creation
+        return self.create_simple_task_graph(task, repo_context, issues);}
+
+    
+    """Get the system prompt for the planning LLM"""
+    def get_planning_system_prompt() -> str {
+        return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
+
+        CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
+
+        You should:
+        1. ALWAYS prioritize the user's main task as priority 1
+        2. Break down the main task into smaller, manageable subtasks with priority 1-2
+        3. Only include fixing existing issues (lint, tests) if they directly impact the main task
+        4. Consider dependencies between tasks and order them logically
+        5. Ensure tasks are specific and actionable
+        6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
+        7. When creating new files for the main task, focus on "feature_implementation" task types
+
+        Respond with a JSON array of task objects. Each task should have:
+        - "name": Clear, descriptive task name
+        - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
+        - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
+        - "details": Specific description of what needs to be done
+        - "dependencies": Array of task names that must complete first (empty array if none)
+        - "estimated_effort": "small", "medium", or "large"
+        - "file": (optional) Specific file path if the task is file-specific
+
+        IMPORTANT:
+        - The user's main task gets priority 1
+        - Supporting tasks for the main task get priority 2-3
+        - Existing code fixes only get priority 1-2 if they block the main task
+        - Missing files unrelated to main task get priority 4-5 or are excluded""";
     }
     
     """Create a simple task graph when LLM planning fails"""
@@ -331,54 +387,10 @@ node PlanningNode {
         return tasks;
     }
     
-    """Sort tasks by dependencies and priority"""
-    def resolve_task_dependencies(tasks: List[Dict]) -> List[Dict] {
-        task_map = {task['name']: task for task in tasks};
-        resolved = [];
-        remaining = tasks.copy();
-        
-        while remaining {
-            ready_tasks = [];
-            for task in remaining {
-                deps = task.get('dependencies', []);
-                resolved_names = [t['name'] for t in resolved];
-                deps_satisfied = True;
-                for dep in deps {
-                    if dep not in resolved_names {
-                        deps_satisfied = False;
-                        break;
-                    }
-                }
-                if deps_satisfied {
-                    ready_tasks.append(task);
-                }
-            }
-            
-            if not ready_tasks {
-                # Break circular dependencies by taking the highest priority task
-                min_priority = min([task['priority'] for task in remaining]);
-                for task in remaining {
-                    if task['priority'] == min_priority {
-                        ready_tasks = [task];
-                        break;
-                    }
-                }
-            }
-            
-            # Sort ready tasks by priority
-            def get_task_priority(task: dict) -> int {
-                return task['priority'];
-            }
-            ready_tasks = sorted(ready_tasks, key=get_task_priority);
-            for task in ready_tasks {
-                resolved.append(task);
-                remaining.remove(task);
-            }
-        }
-        
-        return resolved;
-    }
 }
+
+
+
 
 node EditorNode {
     has file_path: str = "";
@@ -706,16 +718,17 @@ walker GeniusAgent {
         # Initialize web searcher if available
         if WEB_SEARCH_AVAILABLE and create_web_searcher {
             self.web_searcher = create_web_searcher(print_error=self.coder.io.tool_error);
-            print("Web searcher initialized successfully.");
+            # print("Web searcher initialized successfully.");
         } else {
             self.web_searcher = None;
         }
         
         # Set planning model
-        self.planning_model = self.planning_model or self.coder.main_model;
+        # self.planning_model = self.planning_model or self.coder.main_model;
+        self.planning_model = Model(model_name="gpt-4.1-mini");
         
         # Create the workflow graph
-        planning_node = PlanningNode(task=self.task, status="pending");
+        planning_node = PlanningNode(task=self.task, status="pending", planning_model=self.planning_model);
         editor_node = EditorNode(file_path="", content="", changes=[], status="pending");
         validator_node = ValidatorNode(file_path="", issues=[], status="pending");
         
