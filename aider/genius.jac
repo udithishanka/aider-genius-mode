@@ -281,11 +281,17 @@ node PlanningNode {
         
         # Main task always gets priority 1
         if task and task != "Analyze and improve the codebase" {
+            task_details = task;
+            # Enhance task details for common requests
+            if 'calculator' in task.lower() {
+                task_details = f"{task}\n\nCreate a simple calculator program that:\n- Supports basic arithmetic operations (+, -, *, /)\n- Handles user input and output\n- Includes error handling for invalid inputs and division by zero\n- Has a clean, user-friendly interface";
+            }
+            
             tasks.append({
                 "name": task,
                 "type": "feature_implementation",
                 "priority": 1,
-                "details": task,
+                "details": task_details,
                 "dependencies": [],
                 "estimated_effort": "medium"
             });
@@ -391,48 +397,61 @@ node EditorNode {
     
     """Prepare a context-aware message for the current task"""
     def prepare_task_message(task: Dict, last_error_context: Optional[str] = None) -> str {
-        base_message = f"Task: {task['name']}\n\n";
-        
-        if task['type'] == 'fix_lint' {
-            if task.get('file') {
-                base_message += f"Please fix the following linting issues in {task['file']}:\n";
-            } else {
-                base_message += "Please fix the following linting issues:\n";
-            }
-            base_message += f"```\n{task['details']}\n```\n";
-            base_message += "Focus on fixing the specific issues without changing unrelated code.";
-        } elif task['type'] == 'fix_tests' {
-            base_message += "Please fix the failing tests:\n";
-            base_message += f"```\n{task['details']}\n```\n";
-            base_message += "Analyze the test failures and fix the underlying issues.";
-        } elif task['type'] == 'feature_implementation' {
-            base_message += f"Please implement the following feature or improvement:\n{task['details']}\n";
-            details_lower = task['details'].lower();
-            if 'create' in details_lower or 'new file' in details_lower {
-                base_message += "If you need to create new files, please do so.\n";
-            }
-            base_message += "Consider the existing codebase structure and maintain consistency.";
-        } elif task['type'] == 'improvement' {
-            base_message += "Please review the code and make improvements:\n";
-            base_message += "- Add documentation where missing\n";
-            base_message += "- Improve code readability and structure\n";
-            base_message += "- Add type hints where appropriate\n";
-            base_message += "- Ensure consistent coding style\n";
-        } elif task['type'] == 'fix_security' {
-            base_message += "Please fix the following security issues:\n";
-            base_message += f"```\n{task['details']}\n```\n";
-            base_message += "Address the security vulnerabilities while maintaining functionality.";
-        } elif task['type'] == 'refactor' {
-            base_message += f"Please refactor the code as described:\n{task['details']}\n";
-            base_message += "Maintain existing functionality while improving code structure.";
-        } elif task['type'] == 'documentation' {
-            base_message += f"Please add or improve documentation:\n{task['details']}\n";
-            base_message += "Focus on clear, helpful documentation that explains the code's purpose and usage.";
+        # Check if this is a retry with specific details
+        if task.get('retry_details') {
+            base_message = task['retry_details'];
         } else {
-            base_message += f"Please complete the following task:\n{task['details']}\n";
+            base_message = f"Task: {task['name']}\n\n";
         }
         
-        if last_error_context {
+        if not task.get('retry_details') {
+            if task['type'] == 'fix_lint' {
+                if task.get('file') {
+                    base_message += f"Please fix the following linting issues in {task['file']}:\n";
+                } else {
+                    base_message += "Please fix the following linting issues:\n";
+                }
+                base_message += f"```\n{task['details']}\n```\n";
+                base_message += "Focus on fixing the specific issues without changing unrelated code.";
+            } elif task['type'] == 'fix_tests' {
+                base_message += "Please fix the failing tests:\n";
+                base_message += f"```\n{task['details']}\n```\n";
+                base_message += "Analyze the test failures and fix the underlying issues.";
+            } elif task['type'] == 'feature_implementation' {
+                base_message += f"Please implement the following feature or improvement:\n{task['details']}\n\n";
+                details_lower = task['details'].lower();
+                if 'create' in details_lower or 'new file' in details_lower {
+                    base_message += "IMPORTANT: You must create the necessary files. Do not ask for confirmation - proceed directly with implementation.\n";
+                }
+                if 'calculator' in details_lower {
+                    base_message += "Create a functional calculator with basic arithmetic operations (addition, subtraction, multiplication, division).\n";
+                    base_message += "Include proper error handling for division by zero and invalid inputs.\n";
+                    base_message += "Make it user-friendly with clear prompts and output formatting.\n";
+                }
+                base_message += "Consider the existing codebase structure and maintain consistency.\n";
+                base_message += "Create all necessary files and implement the complete functionality.";
+            } elif task['type'] == 'improvement' {
+                base_message += "Please review the code and make improvements:\n";
+                base_message += "- Add documentation where missing\n";
+                base_message += "- Improve code readability and structure\n";
+                base_message += "- Add type hints where appropriate\n";
+                base_message += "- Ensure consistent coding style\n";
+            } elif task['type'] == 'fix_security' {
+                base_message += "Please fix the following security issues:\n";
+                base_message += f"```\n{task['details']}\n```\n";
+                base_message += "Address the security vulnerabilities while maintaining functionality.";
+            } elif task['type'] == 'refactor' {
+                base_message += f"Please refactor the code as described:\n{task['details']}\n";
+                base_message += "Maintain existing functionality while improving code structure.";
+            } elif task['type'] == 'documentation' {
+                base_message += f"Please add or improve documentation:\n{task['details']}\n";
+                base_message += "Focus on clear, helpful documentation that explains the code's purpose and usage.";
+            } else {
+                base_message += f"Please complete the following task:\n{task['details']}\n";
+            }
+        }
+        
+        if last_error_context and not task.get('retry_details') {
             base_message += f"\n\nNote: Previous attempt failed with: {last_error_context}\n";
             base_message += "Please address this issue in your implementation.";
         }
@@ -467,13 +486,16 @@ node EditorNode {
                     "jac language examples tutorial",
                     "object spatial programming jac"
                 ]);
+            } elif 'calculator' in details {
+                queries.extend([
+                    "python calculator implementation tutorial",
+                    "simple calculator program with error handling",
+                    "basic arithmetic calculator python code example"
+                ]);
             } else {
                 queries.append(f"how to implement {task_details} programming");
             }
             
-            if 'calculation' in details {
-                queries.append("calculator implementation best practices");
-            }
             if 'api' in details {
                 queries.append("REST API implementation guide");
             }
@@ -520,14 +542,20 @@ node EditorNode {
         
         try {
             search_results = "";
-            for query in search_queries[:3] {  # Limit to 3 queries
+            for query in search_queries[:2] {  # Limit to 2 queries to avoid too much context
+                print(f"Searching for: {query}");
                 result = web_searcher.search(query);
-                if result and not result.startswith('No') {
+                if result and not result.startswith('No') and len(result.strip()) > 50 {
+                    # Truncate very long results to avoid context overflow
+                    if len(result) > 1000 {
+                        result = result[:1000] + "... (truncated)";
+                    }
                     search_results += f"\n--- Search: {query} ---\n{result}\n";
                 }
             }
             
-            if search_results and not search_results.startswith('No') {
+            if search_results and len(search_results.strip()) > 100 {
+                print(f"Found useful search context ({len(search_results)} chars)");
                 return search_results;
             } else {
                 print("No useful search results found");
@@ -820,8 +848,36 @@ walker GeniusAgent {
             }
             
             try {
+                # Store the state before running the coder
+                files_before = set(self.coder.abs_fnames) if self.coder.abs_fnames else set();
+                repo_dirty_before = self.coder.repo.is_dirty() if self.coder.repo else False;
+                
                 self.coder.run(with_message=message);
                 edit_success = True;
+                
+                # Check if actual changes were made
+                files_after = set(self.coder.abs_fnames) if self.coder.abs_fnames else set();
+                repo_dirty_after = self.coder.repo.is_dirty() if self.coder.repo else False;
+                
+                # Validate that work was actually done
+                files_added = files_after - files_before;
+                changes_made = repo_dirty_after and not repo_dirty_before;
+                
+                if not files_added and not changes_made {
+                    self.coder.io.tool_output("Warning: No files were created or modified. Task may not be complete.");
+                    # Still consider it a success but flag for retry if it's a creation task
+                    if 'create' in current_task.get('details', '').lower() {
+                        edit_success = False;
+                        self.last_error_context = "No files were created despite being a creation task";
+                    }
+                } else {
+                    if files_added {
+                        self.coder.io.tool_output(f"Files added: {', '.join(files_added)}");
+                    }
+                    if changes_made {
+                        self.coder.io.tool_output("Changes detected in repository");
+                    }
+                }
             } except Exception as e {
                 self.coder.io.tool_output(f"Genius Agent - Phase: Editing | Action: Code generation failed | Reasoning: {str(e)}");
                 edit_success = False;
@@ -830,10 +886,14 @@ walker GeniusAgent {
             
             if not edit_success {
                 # Handle retry logic
-                retry_count = getattr(current_task, 'retry_count', 0);
+                retry_count = current_task.get('retry_count', 0);
                 if retry_count < 2 {
                     current_task['retry_count'] = retry_count + 1;
-                    self.coder.io.tool_output(f"Genius Agent - Phase: Retry | Action: Retrying task {current_task['name']} | Reasoning: Attempt {retry_count + 1}/3 with error context");
+                    self.coder.io.tool_output(f"Genius Agent - Phase: Retry | Action: Retrying task {current_task['name']} | Reasoning: Attempt {retry_count + 2}/3 with error context");
+                    # Add more specific instruction for retry
+                    if 'create' in current_task.get('details', '').lower() and 'No files were created' in str(self.last_error_context) {
+                        current_task['retry_details'] = f"RETRY: {current_task['details']}\n\nIMPORTANT: The previous attempt failed to create any files. You MUST create the actual implementation files. Do not just provide explanations or ask for confirmation.";
+                    }
                     continue;
                 } else {
                     self.failed_tasks.append(current_task);
