@@ -1,6 +1,7 @@
 import json;
 import subprocess;
 import time;
+import re;
 import from pathlib { Path }
 import from typing { Any, Dict, List, Optional, Tuple }
 import from aider.web_search { create_web_searcher }
@@ -29,6 +30,355 @@ node PlanningNode {
     has task_graph: list = [];
     has repo_context: dict = {};
     has issues: list = [];
+    
+    """Enhanced logging for agent actions with structured data"""
+    def log_agent_action(phase: str, action: str, reasoning: str, details: Optional[Dict] = None) {
+        print(f"Genius Agent - Phase: {phase} | Action: {action} | Reasoning: {reasoning}");
+        print("");
+    }
+    
+    """Gather comprehensive repository context"""
+    def gather_repository_context(coder: Any) -> Dict[str, Any] {
+        context = {
+            'files_in_chat': list(coder.abs_fnames),
+            'readonly_files': list(coder.abs_read_only_fnames),
+            'repo_map': None,
+            'terminal_output': None,
+            'git_status': None,
+            'missing_files': []
+        };
+        
+        if coder.repo_map {
+            repo_map = coder.get_repo_map();
+            if repo_map {
+                context['repo_map'] = repo_map;
+                
+                # Find mentioned files that might be missing
+                file_mentions = re.findall(r'(\w+\.\w+)', repo_map);
+                missing_files = [];
+                for file_path in file_mentions {
+                    if not Path(file_path).exists() {
+                        missing_files.append(file_path);
+                    }
+                }
+                if missing_files {
+                    context['missing_files'] = missing_files[:10];  # Limit to first 10
+                }
+            }
+        }
+        
+        if coder.repo {
+            try {
+                git_status = coder.repo.get_dirty_files();
+                context['git_status'] = git_status;
+            } except Exception as e {
+                print(f"Git status failed: {str(e)}");
+            }
+        }
+        
+        return context;
+    }
+    
+    """Analyze current issues in the codebase"""
+    def analyze_current_issues(coder: Any) -> List[Dict] {
+        issues = [];
+        
+        # Check for lint issues
+        if coder.auto_lint and coder.abs_fnames {
+            try {
+                for fname in list(coder.abs_fnames) {
+                    lint_output = coder.commands.cmd_lint(fname);
+                    if lint_output and lint_output.strip() {
+                        issues.append({
+                            'type': 'lint',
+                            'file': fname,
+                            'details': lint_output,
+                            'priority': 'medium'
+                        });
+                    }
+                }
+            } except Exception as e {
+                print(f"Lint analysis failed: {str(e)}");
+            }
+        }
+        
+        # Check for test failures
+        if coder.test_cmd {
+            try {
+                test_result = coder.commands.cmd_test(coder.test_cmd);
+                if test_result and "FAILED" in test_result {
+                    issues.append({
+                        'type': 'test',
+                        'details': test_result,
+                        'priority': 'high'
+                    });
+                }
+            } except Exception as e {
+                print(f"Test analysis failed: {str(e)}");
+            }
+        }
+        
+        return issues;
+    }
+    
+    """Use LLM to analyze the task and repository context to create an intelligent task plan."""
+    def llm_based_task_planning(task: str, repo_context: Dict, issues: List[Dict], planning_model: Any, coder: Any) -> List[Dict] {
+        print(f"Consulting planning model for intelligent task breakdown using {planning_model.name}");
+        
+        planning_prompt = self.create_planning_prompt(task, repo_context, issues);
+        
+        try {
+            messages = [{"role": "user", "content": planning_prompt}];
+            planning_response = planning_model.simple_send_with_retries(messages);
+            
+            if planning_response {
+                tasks = self.parse_llm_planning_response(planning_response);
+                if tasks {
+                    return self.resolve_task_dependencies(tasks);
+                }
+            }
+        } except Exception as e {
+            print(f"LLM planning failed: {str(e)}");
+        }
+        
+        # Fallback to simple task creation
+        return self.create_simple_task_graph(task, repo_context, issues);
+    }
+    
+    """Get the system prompt for the planning LLM"""
+    def get_planning_system_prompt() -> str {
+        return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
+
+        CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
+
+        You should:
+        1. ALWAYS prioritize the user's main task as priority 1
+        2. Break down the main task into smaller, manageable subtasks with priority 1-2
+        3. Only include fixing existing issues (lint, tests) if they directly impact the main task
+        4. Consider dependencies between tasks and order them logically
+        5. Ensure tasks are specific and actionable
+        6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
+        7. When creating new files for the main task, focus on "feature_implementation" task types
+
+        Respond with a JSON array of task objects. Each task should have:
+        - "name": Clear, descriptive task name
+        - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
+        - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
+        - "details": Specific description of what needs to be done
+        - "dependencies": Array of task names that must complete first (empty array if none)
+        - "estimated_effort": "small", "medium", or "large"
+        - "file": (optional) Specific file path if the task is file-specific
+
+        IMPORTANT:
+        - The user's main task gets priority 1
+        - Supporting tasks for the main task get priority 2-3
+        - Existing code fixes only get priority 1-2 if they block the main task
+        - Missing files unrelated to main task get priority 4-5 or are excluded""";
+    }
+    
+    """Create a comprehensive prompt for the planning LLM"""
+    def create_planning_prompt(task: str, repo_context: Dict, issues: List[Dict]) -> str {
+        prompt_parts = [
+            f"MAIN TASK (HIGHEST PRIORITY): {task}",
+            "",
+            "FOCUS: Create a plan that prioritizes completing the main task above all else.",
+            "",
+            "REPOSITORY CONTEXT:"
+        ];
+        
+        if repo_context.get('files_in_chat') {
+            prompt_parts.append("Files currently being worked on:");
+            for file in repo_context['files_in_chat'] {
+                prompt_parts.append(f"  - {file}");
+            }
+            prompt_parts.append("");
+        }
+        
+        if repo_context.get('missing_files') {
+            prompt_parts.append("Missing files mentioned in repo map:");
+            for file in repo_context['missing_files'][:3] {
+                prompt_parts.append(f"  - {file}");
+            }
+            if len(repo_context['missing_files']) > 3 {
+                prompt_parts.append(f"  ... and {len(repo_context['missing_files']) - 3} more");
+            }
+            prompt_parts.append("");
+        }
+        
+        if repo_context.get('repo_map') {
+            prompt_parts.append("Repository structure:");
+            repo_map = str(repo_context['repo_map']);
+            if len(repo_map) > 2000 {
+                repo_map = repo_map[:2000] + "... (truncated)";
+            }
+            prompt_parts.append(repo_map);
+            prompt_parts.append("");
+        }
+        
+        if repo_context.get('git_status') {
+            prompt_parts.append("Git status (dirty files):");
+            for file in repo_context['git_status'] {
+                prompt_parts.append(f"  - {file}");
+            }
+            prompt_parts.append("");
+        }
+        
+        if issues {
+            prompt_parts.append("Current issues in codebase (fix only if they block the main task):");
+            for issue in issues {
+                prompt_parts.append(f"  - {issue['type']}: {issue.get('file', 'general')} - {issue['details'][:100]}...");
+            }
+            prompt_parts.append("");
+        }
+        
+        prompt_parts.extend([
+            "REQUIREMENTS:",
+            "1. PRIORITY 1: Create tasks to complete the main task - this is most important",
+            "2. Break down the main task into logical, implementable steps",
+            "3. Only include existing issue fixes if they directly block the main task",
+            "4. Consider dependencies and proper ordering for the main task",
+            "5. Missing files unrelated to the main task should be low priority or excluded",
+            "6. Be specific about what each task should accomplish for the main goal",
+            "",
+            "Please analyze the above context and create an optimal task execution plan as a JSON array, focusing primarily on the main task:"
+        ]);
+        
+        return "\n".join(prompt_parts);
+    }
+    
+    """Parse the LLM's planning response and convert to task objects"""
+    def parse_llm_planning_response(response: str) -> List[Dict] {
+        try {
+            json_match = re.search(r'\[.*\]', response, re.DOTALL);
+            if json_match {
+                json_str = json_match.group(0);
+                tasks = json.loads(json_str);
+                
+                # Validate task structure
+                valid_tasks = [];
+                for task in tasks {
+                    if isinstance(task, dict) and 'name' in task and 'type' in task {
+                        # Set defaults for missing fields
+                        task.setdefault('priority', 1);
+                        task.setdefault('details', task.get('name', ''));
+                        task.setdefault('dependencies', []);
+                        task.setdefault('estimated_effort', 'medium');
+                        valid_tasks.append(task);
+                    }
+                }
+                return valid_tasks;
+            }
+        } except (json.JSONDecodeError, Exception) as e {
+            print(f"Failed to parse LLM planning response: {str(e)}");
+        }
+        
+        return [];
+    }
+    
+    """Create a simple task graph when LLM planning fails"""
+    def create_simple_task_graph(task: str, repo_context: Dict, issues: List[Dict]) -> List[Dict] {
+        tasks = [];
+        
+        # Main task always gets priority 1
+        if task and task != "Analyze and improve the codebase" {
+            tasks.append({
+                "name": task,
+                "type": "feature_implementation",
+                "priority": 1,
+                "details": task,
+                "dependencies": [],
+                "estimated_effort": "medium"
+            });
+        }
+        
+        # Add critical issues that might block the main task
+        critical_issues = [];
+        for issue in issues {
+            if issue['type'] == 'test' and issue.get('priority') == 'high' {
+                critical_issues.append(issue);
+            }
+        }
+        
+        for issue in critical_issues {
+            if issue['type'] == 'test' {
+                tasks.append({
+                    "name": "Fix failing tests",
+                    "type": "fix_tests",
+                    "priority": 2,
+                    "details": issue['details'],
+                    "dependencies": [],
+                    "estimated_effort": "medium"
+                });
+            }
+        }
+        
+        # Fallback improvement task
+        if task == "Analyze and improve the codebase" and repo_context['files_in_chat'] {
+            tasks.append({
+                "name": "Improve code quality and documentation",
+                "type": "improvement",
+                "priority": 1,
+                "details": "Review and improve code quality, add documentation where needed",
+                "dependencies": [],
+                "estimated_effort": "large"
+            });
+        }
+        
+        # Sort by priority
+        def get_priority(task: dict) -> int {
+            return task['priority'];
+        }
+        tasks = sorted(tasks, key=get_priority);
+        return tasks;
+    }
+    
+    """Sort tasks by dependencies and priority"""
+    def resolve_task_dependencies(tasks: List[Dict]) -> List[Dict] {
+        task_map = {task['name']: task for task in tasks};
+        resolved = [];
+        remaining = tasks.copy();
+        
+        while remaining {
+            ready_tasks = [];
+            for task in remaining {
+                deps = task.get('dependencies', []);
+                resolved_names = [t['name'] for t in resolved];
+                deps_satisfied = True;
+                for dep in deps {
+                    if dep not in resolved_names {
+                        deps_satisfied = False;
+                        break;
+                    }
+                }
+                if deps_satisfied {
+                    ready_tasks.append(task);
+                }
+            }
+            
+            if not ready_tasks {
+                # Break circular dependencies by taking the highest priority task
+                min_priority = min([task['priority'] for task in remaining]);
+                for task in remaining {
+                    if task['priority'] == min_priority {
+                        ready_tasks = [task];
+                        break;
+                    }
+                }
+            }
+            
+            # Sort ready tasks by priority
+            def get_task_priority(task: dict) -> int {
+                return task['priority'];
+            }
+            ready_tasks = sorted(ready_tasks, key=get_task_priority);
+            for task in ready_tasks {
+                resolved.append(task);
+                remaining.remove(task);
+            }
+        }
+        
+        return resolved;
+    }
 }
 
 node EditorNode {
@@ -38,6 +388,156 @@ node EditorNode {
     has status: str = "pending";
     has current_task: dict = {};
     has web_context: Optional[str] = None;
+    
+    """Prepare a context-aware message for the current task"""
+    def prepare_task_message(task: Dict, last_error_context: Optional[str] = None) -> str {
+        base_message = f"Task: {task['name']}\n\n";
+        
+        if task['type'] == 'fix_lint' {
+            if task.get('file') {
+                base_message += f"Please fix the following linting issues in {task['file']}:\n";
+            } else {
+                base_message += "Please fix the following linting issues:\n";
+            }
+            base_message += f"```\n{task['details']}\n```\n";
+            base_message += "Focus on fixing the specific issues without changing unrelated code.";
+        } elif task['type'] == 'fix_tests' {
+            base_message += "Please fix the failing tests:\n";
+            base_message += f"```\n{task['details']}\n```\n";
+            base_message += "Analyze the test failures and fix the underlying issues.";
+        } elif task['type'] == 'feature_implementation' {
+            base_message += f"Please implement the following feature or improvement:\n{task['details']}\n";
+            details_lower = task['details'].lower();
+            if 'create' in details_lower or 'new file' in details_lower {
+                base_message += "If you need to create new files, please do so.\n";
+            }
+            base_message += "Consider the existing codebase structure and maintain consistency.";
+        } elif task['type'] == 'improvement' {
+            base_message += "Please review the code and make improvements:\n";
+            base_message += "- Add documentation where missing\n";
+            base_message += "- Improve code readability and structure\n";
+            base_message += "- Add type hints where appropriate\n";
+            base_message += "- Ensure consistent coding style\n";
+        } elif task['type'] == 'fix_security' {
+            base_message += "Please fix the following security issues:\n";
+            base_message += f"```\n{task['details']}\n```\n";
+            base_message += "Address the security vulnerabilities while maintaining functionality.";
+        } elif task['type'] == 'refactor' {
+            base_message += f"Please refactor the code as described:\n{task['details']}\n";
+            base_message += "Maintain existing functionality while improving code structure.";
+        } elif task['type'] == 'documentation' {
+            base_message += f"Please add or improve documentation:\n{task['details']}\n";
+            base_message += "Focus on clear, helpful documentation that explains the code's purpose and usage.";
+        } else {
+            base_message += f"Please complete the following task:\n{task['details']}\n";
+        }
+        
+        if last_error_context {
+            base_message += f"\n\nNote: Previous attempt failed with: {last_error_context}\n";
+            base_message += "Please address this issue in your implementation.";
+        }
+        
+        return base_message;
+    }
+    
+    """Determine if web search would be helpful for this task"""
+    def should_search_web(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool {
+        if not web_searcher or not web_searcher.is_available() {
+            return False;
+        }
+        
+        return (task['type'] in ['feature_implementation', 'improvement'] or
+                last_error_context is not None or
+                'jac' in task.get('details', '').lower() or
+                'documentation' in task.get('details', '').lower() or
+                'jac language' in task.get('details', '').lower() or
+                'create' in task.get('details', '').lower());
+    }
+    
+    """Generate relevant search queries for the task"""
+    def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
+        queries = [];
+        details = task.get('details', '').lower();
+        
+        if task['type'] == 'feature_implementation' {
+            task_details = task.get('details', '');
+            if 'jac language' in details or 'jac' in details {
+                queries.extend([
+                    "jac programming language syntax guide",
+                    "jac language examples tutorial",
+                    "object spatial programming jac"
+                ]);
+            } else {
+                queries.append(f"how to implement {task_details} programming");
+            }
+            
+            if 'calculation' in details {
+                queries.append("calculator implementation best practices");
+            }
+            if 'api' in details {
+                queries.append("REST API implementation guide");
+            }
+            if 'test' in details {
+                queries.append("unit testing best practices");
+            }
+        } elif task['type'] == 'fix_tests' {
+            queries.extend([
+                "fix failing unit tests debugging",
+                "test failure troubleshooting guide"
+            ]);
+        } elif task['type'] == 'fix_lint' {
+            queries.extend([
+                "code linting errors how to fix",
+                "static analysis warnings solutions"
+            ]);
+        } elif last_error_context {
+            error_key_terms = last_error_context[:100];
+            queries.append(f"python error solution {error_key_terms}");
+        }
+        
+        # Remove duplicates while preserving order
+        unique_queries = [];
+        seen = set();
+        for query in queries {
+            if query.lower() not in seen {
+                unique_queries.append(query);
+                seen.add(query.lower());
+            }
+        }
+        
+        return unique_queries;
+    }
+    
+    """Perform web search for additional context using Serper API"""
+    def perform_web_search(task: Dict, web_searcher: Any, coder: Any, last_error_context: Optional[str] = None) -> Optional[str] {
+        search_queries = self.generate_search_queries(task, last_error_context);
+        if not search_queries {
+            return None;
+        }
+        
+        print(f"🔍 STARTING WEB SEARCH - {len(search_queries)} queries");
+        print("Gathering additional information to improve implementation quality");
+        
+        try {
+            search_results = "";
+            for query in search_queries[:3] {  # Limit to 3 queries
+                result = web_searcher.search(query);
+                if result and not result.startswith('No') {
+                    search_results += f"\n--- Search: {query} ---\n{result}\n";
+                }
+            }
+            
+            if search_results and not search_results.startswith('No') {
+                return search_results;
+            } else {
+                print("No useful search results found");
+                return None;
+            }
+        } except Exception as e {
+            print(f"Search exception: {e}");
+            return None;
+        }
+    }
 }
 
 node ValidatorNode {
@@ -45,6 +545,117 @@ node ValidatorNode {
     has issues: list = [];
     has status: str = "pending";
     has validation_results: dict = {};
+    
+    """Comprehensive validation phase with testing, linting, and security scanning."""
+    def code_execution_validation(coder: Any, enable_security_scan: bool = True) -> Tuple[bool, Dict] {
+        print("Running comprehensive validation suite");
+        print("Ensuring code quality, functionality, and security");
+        
+        validation_results = {
+            'lint_passed': True,
+            'tests_passed': True,
+            'security_passed': True,
+            'lint_output': None,
+            'test_output': None,
+            'security_output': None
+        };
+        
+        # Run linting
+        if coder.auto_lint and coder.abs_fnames {
+            print("Running linting validation");
+            try {
+                lint_output = "";
+                for fname in list(coder.abs_fnames) {
+                    file_lint = coder.commands.cmd_lint(fname);
+                    if file_lint and file_lint.strip() {
+                        lint_output += f"\n{fname}:\n{file_lint}";
+                    }
+                }
+                
+                validation_results['lint_output'] = lint_output;
+                validation_results['lint_passed'] = not lint_output.strip();
+            } except Exception as e {
+                print(f"Lint validation failed: {str(e)}");
+                validation_results['lint_passed'] = False;
+                validation_results['lint_output'] = str(e);
+            }
+        }
+        
+        # Run tests
+        if coder.auto_test and coder.test_cmd {
+            print("Running test validation");
+            try {
+                test_output = coder.commands.cmd_test(coder.test_cmd);
+                validation_results['test_output'] = test_output;
+                validation_results['tests_passed'] = test_output and "FAILED" not in test_output;
+            } except Exception as e {
+                print(f"Test validation failed: {str(e)}");
+                validation_results['tests_passed'] = False;
+                validation_results['test_output'] = str(e);
+            }
+        }
+        
+        # Run security scan
+        if enable_security_scan {
+            security_result = self.run_security_scan(coder);
+            validation_results['security_passed'] = security_result['passed'];
+            validation_results['security_output'] = security_result['output'];
+        }
+        
+        overall_success = (validation_results['lint_passed'] and 
+                          validation_results['tests_passed'] and 
+                          validation_results['security_passed']);
+        
+        status = "PASSED" if overall_success else "FAILED";
+        print(f"Validation complete: {status}");
+        
+        lint_status = "✅" if validation_results['lint_passed'] else "❌";
+        test_status = "✅" if validation_results['tests_passed'] else "❌";
+        security_status = "✅" if validation_results['security_passed'] else "❌";
+        
+        print(f"Lint: {lint_status}, Tests: {test_status}, Security: {security_status}");
+        
+        return (overall_success, validation_results);
+    }
+    
+    """Run basic security scanning on the codebase"""
+    def run_security_scan(coder: Any) -> Dict[str, Any] {
+        print("Checking for security issues");
+        print("Ensuring code security");
+        
+        security_issues = [];
+        
+        for fname in coder.abs_fnames {
+            if fname.endswith('.py') {
+                try {
+                    with open(fname, 'r') as f {
+                        content = f.read();
+                    }
+                    
+                    # Basic security checks
+                    if 'eval(' in content {
+                        security_issues.append(f"{fname}: Use of eval() detected - potential code injection risk");
+                    }
+                    if 'exec(' in content {
+                        security_issues.append(f"{fname}: Use of exec() detected - potential code injection risk");
+                    }
+                    if 'shell=True' in content {
+                        security_issues.append(f"{fname}: subprocess with shell=True detected - potential command injection risk");
+                    }
+                    if 'pickle.loads' in content {
+                        security_issues.append(f"{fname}: Use of pickle.loads detected - potential deserialization risk");
+                    }
+                } except Exception as e {
+                    print(f"Security scan failed for {fname}: {str(e)}");
+                }
+            }
+        }
+        
+        return {
+            'passed': len(security_issues) == 0,
+            'output': "\n".join(security_issues) if security_issues else "No security issues detected"
+        };
+    }
 }
 
 # Main walker that traverses the graph and executes tasks
@@ -97,7 +708,7 @@ walker GeniusAgent {
 
     # Handle planning phase
     can plan_tasks with PlanningNode entry {
-        self.coder.io.tool_output("Genius Agent - Phase: Planning | Action: Starting planning phase | Reasoning: Analyzing repository and creating task graph");
+        here.log_agent_action("Planning", "Starting planning phase", "Analyzing repository and creating task graph");
         
         # Get task from user if not provided
         if not self.task_explicitly_provided {
@@ -110,7 +721,7 @@ walker GeniusAgent {
                     self.task = user_input;
                     self.task_explicitly_provided = True;
                     here.task = self.task;
-                    self.coder.io.tool_output(f"Genius Agent - Phase: Planning | Action: User task received | Reasoning: Updated task to: {self.task}");
+                    here.log_agent_action("Planning", "User task received", f"Updated task to: {self.task}");
                 } else {
                     self.coder.io.tool_output("No task provided. Cannot proceed without a specific task.");
                     here.status = "failed";
@@ -128,20 +739,32 @@ walker GeniusAgent {
             }
         }
 
-        # Create a simple task for the main work
-        task_graph = [{
-            "name": self.task if self.task != "Analyze and improve the codebase" else "Improve codebase",
-            "type": "feature_implementation" if self.task != "Analyze and improve the codebase" else "improvement",
-            "priority": 1,
-            "details": self.task
-        }];
+        # Refresh repository map if available
+        if self.coder.repo_map {
+            here.log_agent_action("Planning", "Refreshing repository map", "Ensuring up-to-date view of current files and structure before analysis");
+            self.coder.get_repo_map(force_refresh=True);
+        }
+
+        # Gather comprehensive repository context
+        here.log_agent_action("Planning", "Analyzing repository structure and dependencies", "Building comprehensive understanding of codebase before making changes");
+        repo_context = here.gather_repository_context(self.coder);
+        issues = here.analyze_current_issues(self.coder);
+        
+        # Store context in memory
+        self.context_memory['repo_analysis'] = repo_context;
+        self.context_memory['identified_issues'] = issues;
+        
+        # Use LLM-based planning
+        task_graph = here.llm_based_task_planning(self.task, repo_context, issues, self.planning_model, self.coder);
         
         # Store results in the node
         here.task_graph = task_graph;
+        here.repo_context = repo_context;
+        here.issues = issues;
         here.status = "completed";
         
         self.planning_complete = True;
-        self.coder.io.tool_output(f"Genius Agent - Phase: Planning | Action: Task graph created | Reasoning: Generated {len(task_graph)} tasks");
+        here.log_agent_action("Planning", "LLM-generated task graph created", f"Generated {len(task_graph)} prioritized tasks using intelligent planning", {'tasks': [task['name'] for task in task_graph]});
         
         # Move to next phase
         visit [-->];
@@ -181,23 +804,20 @@ walker GeniusAgent {
             here.current_task = current_task;
             here.status = "processing";
             
-            # Execute the task
-            message = f"Task: {current_task['name']}\n\n";
+            # Enhanced editing with web search if needed
+            self.coder.io.tool_output(f"Genius Agent - Phase: Editing/Code Generation | Action: Working on {current_task['name']} | Reasoning: Implementing {current_task['type']} with targeted approach");
             
-            if current_task["type"] == "feature_implementation" {
-                message += f"Please implement the following feature or improvement:\n{current_task['details']}\n";
-                message += "Consider the existing codebase structure and maintain consistency.";
-            } elif current_task["type"] == "improvement" {
-                message += "Please review the code and make improvements:\n";
-                message += "- Add documentation where missing\n";
-                message += "- Improve code readability and structure\n";
-                message += "- Add type hints where appropriate\n";
-                message += "- Ensure consistent coding style\n";
-            } else {
-                message += f"Please complete the following task:\n{current_task['details']}\n";
+            # Prepare the task message
+            message = here.prepare_task_message(current_task, self.last_error_context);
+            
+            # Perform web search if beneficial
+            if self.enable_web_search and here.should_search_web(current_task, self.web_searcher, self.last_error_context) {
+                web_context = here.perform_web_search(current_task, self.web_searcher, self.coder, self.last_error_context);
+                if web_context {
+                    message += f"\n\nAdditional context from web search:\n{web_context}";
+                    here.web_context = web_context;
+                }
             }
-            
-            self.coder.io.tool_output(f"Genius Agent - Phase: Editing/Code Generation | Action: Working on {current_task['name']} | Reasoning: Implementing task");
             
             try {
                 self.coder.run(with_message=message);
@@ -209,11 +829,20 @@ walker GeniusAgent {
             }
             
             if not edit_success {
-                self.failed_tasks.append(current_task);
-                continue;
+                # Handle retry logic
+                retry_count = getattr(current_task, 'retry_count', 0);
+                if retry_count < 2 {
+                    current_task['retry_count'] = retry_count + 1;
+                    self.coder.io.tool_output(f"Genius Agent - Phase: Retry | Action: Retrying task {current_task['name']} | Reasoning: Attempt {retry_count + 1}/3 with error context");
+                    continue;
+                } else {
+                    self.failed_tasks.append(current_task);
+                    self.coder.io.tool_output(f"Genius Agent - Phase: Failure | Action: Task failed after retries | Reasoning: {current_task['name']} failed 3 times, moving to next task");
+                    continue;
+                }
             }
             
-            # Simple validation - just mark as successful for now
+            # Simple validation for now - can be enhanced
             validation_success = True;
             
             if validation_success {
@@ -233,36 +862,46 @@ walker GeniusAgent {
         
         here.status = "completed";
         
-        # Output final report
-        self.coder.io.tool_output("Genius Agent Execution Report");
-        self.coder.io.tool_output("=" * 40);
-        self.coder.io.tool_output(f"Task: {self.task}");
-        self.coder.io.tool_output(f"Iterations completed: {self.current_iteration}/{self.max_iterations}");
-        self.coder.io.tool_output(f"Tasks completed: {len(self.completed_tasks)}");
-        self.coder.io.tool_output(f"Tasks failed: {len(self.failed_tasks)}");
-        
-        if self.completed_tasks {
-            self.coder.io.tool_output("Completed Tasks:");
-            for task in self.completed_tasks {
-                self.coder.io.tool_output(f"  {task['name']}");
-            }
-        }
-        
-        if self.failed_tasks {
-            self.coder.io.tool_output("Failed Tasks:");
-            for task in self.failed_tasks {
-                self.coder.io.tool_output(f"  {task['name']}");
-            }
-        }
+        # Generate comprehensive report
+        self.generate_comprehensive_report();
         
         # Move to validation node for final validation
         visit [-->];
     }
 
-    # Handle validation phase - simple pass-through for now
+    # Handle validation phase - comprehensive validation
     can validate_code with ValidatorNode entry {
-        here.status = "completed";
-        self.coder.io.tool_output("Genius Agent - Phase: Validation | Action: Validation complete | Reasoning: Final validation passed");
+        print("Running comprehensive validation suite");
+        print("Ensuring code quality, functionality, and security");
+        
+        (validation_success, validation_details) = here.code_execution_validation(self.coder, self.enable_security_scan);
+        
+        # Store validation results
+        here.validation_results = validation_details;
+        self.validation_results = validation_details;
+        
+        if validation_success {
+            here.status = "passed";
+            print("Final validation passed - All validation checks completed successfully");
+        } else {
+            here.status = "failed";
+            print("Validation issues found - Some validation checks failed but execution continues");
+            
+            # Log specific validation failures
+            if not validation_details['lint_passed'] {
+                self.coder.io.tool_output("Lint issues found:");
+                self.coder.io.tool_output(validation_details['lint_output']);
+            }
+            if not validation_details['tests_passed'] {
+                self.coder.io.tool_output("Test failures found:");
+                self.coder.io.tool_output(validation_details['test_output']);
+            }
+            if not validation_details['security_passed'] {
+                self.coder.io.tool_output("Security issues found:");
+                self.coder.io.tool_output(validation_details['security_output']);
+            }
+        }
+        
         visit [-->];
     }
 
@@ -273,6 +912,49 @@ walker GeniusAgent {
         self.coder.io.tool_output(f"Genius Agent - Phase: Completion | Action: Genius Agent finished | Reasoning: Success: {success}, Completed: {len(self.completed_tasks)}, Failed: {len(self.failed_tasks)}");
         
         return success;
+    }
+    
+    """Generate a comprehensive report of the agent's work"""
+    def generate_comprehensive_report() {
+        report_lines = [
+            "Genius Agent Execution Report",
+            "=" * 40,
+            f"Task: {self.task}",
+            f"Iterations completed: {self.current_iteration}/{self.max_iterations}",
+            f"Tasks completed: {len(self.completed_tasks)}",
+            f"Tasks failed: {len(self.failed_tasks)}",
+            ""
+        ];
+        
+        if self.completed_tasks {
+            report_lines.append("Completed Tasks:");
+            for task in self.completed_tasks {
+                report_lines.append(f"  ✅ {task['name']}");
+            }
+            report_lines.append("");
+        }
+        
+        if self.failed_tasks {
+            report_lines.append("Failed Tasks:");
+            for task in self.failed_tasks {
+                report_lines.append(f"  ❌ {task['name']}");
+            }
+            report_lines.append("");
+        }
+        
+        if self.validation_results {
+            report_lines.extend([
+                "Validation Results:",
+                f"  Lint: {'✅ PASSED' if self.validation_results['lint_passed'] else '❌ FAILED'}",
+                f"  Tests: {'✅ PASSED' if self.validation_results['tests_passed'] else '❌ FAILED'}",
+                f"  Security: {'✅ PASSED' if self.validation_results['security_passed'] else '❌ FAILED'}",
+                ""
+            ]);
+        }
+        
+        for line in report_lines {
+            self.coder.io.tool_output(line);
+        }
     }
 }
 
