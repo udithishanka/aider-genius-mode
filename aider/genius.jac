@@ -4,7 +4,7 @@ import time;
 import re;
 import from pathlib { Path }
 import from typing { Any, Dict, List, Optional, Tuple }
-import from aider.web_search { create_web_searcher }
+import from aider.web_search { web_search, create_web_searcher }
 import from mtllm {Model}
 
 with entry {
@@ -15,6 +15,27 @@ with entry {
         create_web_searcher = None;
     }
 }
+
+obj Plan {
+    has name: str;
+    has type: str;
+    has details: str;
+    has priority: int = 1;
+    has dependencies: List[str] = [];
+    has estimated_effort: str = "medium";
+    has file: Optional[str] = None;
+    has retry_count: int = 0;
+}
+
+sem Plan = "A specific, actionable development task with clear implementation requirements";
+sem Plan.name = "Clear, descriptive name for the task (e.g., 'Create calculator backend', 'Add input validation')";
+sem Plan.type = "Task category: feature_implementation, fix_tests, fix_lint, fix_security, improvement, refactor, or documentation";
+sem Plan.priority = "Task priority: 1=highest (main task), 2-3=supporting tasks, 4-5=maintenance/optional";
+sem Plan.details = "Specific implementation instructions: what files to create, functions to implement, libraries to use";
+sem Plan.dependencies = "List of task names that must be completed before this task (use actual task names from the same plan)";
+sem Plan.estimated_effort = "Development effort estimate: small, medium, or large";
+sem Plan.file = "Specific file path if the task is focused on a particular file (optional)";
+
 
 node PlanningNode {
     has task: str = "";
@@ -117,276 +138,296 @@ node PlanningNode {
         print(f"Identified issues in codebase: {issues}");
         return issues;
     }
-    
-    """Create a comprehensive prompt for the planning LLM"""
-    def create_planning_prompt(task: str, repo_context: Dict, issues: List[Dict]) -> str {
-        prompt_parts = [
-            f"MAIN TASK (HIGHEST PRIORITY): {task}",
-            "",
-            "FOCUS: Create a plan that prioritizes completing the main task above all else.",
-            "",
-            "REPOSITORY CONTEXT:"
-        ];
-        
-        if repo_context.get('files_in_chat') {
-            prompt_parts.append("Files currently being worked on:");
-            for file in repo_context['files_in_chat'] {
-                prompt_parts.append(f"  - {file}");
-            }
-            prompt_parts.append("");
-        }
-        
-        if repo_context.get('missing_files') {
-            prompt_parts.append("Missing files mentioned in repo map:");
-            for file in repo_context['missing_files'][:3] {
-                prompt_parts.append(f"  - {file}");
-            }
-            if len(repo_context['missing_files']) > 3 {
-                prompt_parts.append(f"  ... and {len(repo_context['missing_files']) - 3} more");
-            }
-            prompt_parts.append("");
-        }
-        
-        if repo_context.get('repo_map') {
-            prompt_parts.append("Repository structure:");
-            repo_map = str(repo_context['repo_map']);
-            if len(repo_map) > 2000 {
-                repo_map = repo_map[:2000] + "... (truncated)";
-            }
-            prompt_parts.append(repo_map);
-            prompt_parts.append("");
-        }
-        
-        if repo_context.get('git_status') {
-            prompt_parts.append("Git status (dirty files):");
-            for file in repo_context['git_status'] {
-                prompt_parts.append(f"  - {file}");
-            }
-            prompt_parts.append("");
-        }
-        
-        if issues {
-            prompt_parts.append("Current issues in codebase (fix only if they block the main task):");
-            for issue in issues {
-                prompt_parts.append(f"  - {issue['type']}: {issue.get('file', 'general')} - {issue['details'][:100]}...");
-            }
-            prompt_parts.append("");
-        }
-        
-        prompt_parts.extend([
-            "REQUIREMENTS:",
-            "1. PRIORITY 1: Create tasks to complete the main task - this is most important",
-            "2. Break down the main task into logical, implementable steps",
-            "3. Only include existing issue fixes if they directly block the main task",
-            "4. Consider dependencies and proper ordering for the main task",
-            "5. Missing files unrelated to the main task should be low priority or excluded",
-            "6. Be specific about what each task should accomplish for the main goal",
-            "",
-            "Please analyze the above context and create an optimal task execution plan as a JSON array, focusing primarily on the main task:"
-        ]);
-        
-        return "\n".join(prompt_parts);
-    }
 
-    """Parse the LLM's planning response and convert to task objects"""
-    def parse_llm_planning_response(response: str) -> List[Dict] {
-        try {
-            json_match = re.search(r'\[.*\]', response, re.DOTALL);
-            if json_match {
-                json_str = json_match.group(0);
-                tasks = json.loads(json_str);
-                
-                # Validate task structure
-                valid_tasks = [];
-                for task in tasks {
-                    if isinstance(task, dict) and 'name' in task and 'type' in task {
-                        # Set defaults for missing fields
-                        task.setdefault('priority', 1);
-                        task.setdefault('details', task.get('name', ''));
-                        task.setdefault('dependencies', []);
-                        task.setdefault('estimated_effort', 'medium');
-                        valid_tasks.append(task);
-                    }
-                }
-                return valid_tasks;
-            }
-        } except (json.JSONDecodeError, Exception) as e {
-            print(f"Failed to parse LLM planning response: {str(e)}");
-        }
-        
-        return [];
-    }
-
-    """Sort tasks by dependencies and priority"""
-    def resolve_task_dependencies(tasks: List[Dict]) -> List[Dict] {
-        task_map = {task['name']: task for task in tasks};
-        resolved = [];
-        remaining = tasks.copy();
-        
-        while remaining {
-            ready_tasks = [];
-            for task in remaining {
-                deps = task.get('dependencies', []);
-                resolved_names = [t['name'] for t in resolved];
-                deps_satisfied = True;
-                for dep in deps {
-                    if dep not in resolved_names {
-                        deps_satisfied = False;
-                        break;
-                    }
-                }
-                if deps_satisfied {
-                    ready_tasks.append(task);
-                }
-            }
-            
-            if not ready_tasks {
-                # Break circular dependencies by taking the highest priority task
-                min_priority = min([task['priority'] for task in remaining]);
-                for task in remaining {
-                    if task['priority'] == min_priority {
-                        ready_tasks = [task];
-                        break;
-                    }
-                }
-            }
-            
-            # Sort ready tasks by priority
-            def get_task_priority(task: dict) -> int {
-                return task['priority'];
-            }
-            ready_tasks = sorted(ready_tasks, key=get_task_priority);
-            for task in ready_tasks {
-                resolved.append(task);
-                remaining.remove(task);
-            }
-        }
-        
-        return resolved;
-    }
+    """Perform background research to gather additional context"""
+    def background_research(task_description:str) -> str by self.planning_model(method="ReAct", tools=[web_search]);
 
     """ Generate specific implementation instructions for the user's task, focusing on exact code structure and technologies to use."""
-    def generate_plan(task_description: str, repo_context: str, issues_context: str) -> str by self.planning_model(method="Reason");
+    def generate_plan(task_description: str, repo_context: str, issues_context: str, web_scraped_info: str) -> List[Plan] by self.planning_model(method="Reason");
 
     """Use LLM to analyze the task and repository context to create an intelligent task plan."""
     def llm_based_task_planning(task: str, repo_context: Dict, issues: List[Dict], planning_model: Any, coder: Any) -> List[Dict] {
         print(f"Consulting planning model for intelligent task breakdown");
         
-        planning_prompt = self.create_planning_prompt(task, repo_context, issues);
-
         try {
-            messages = [{"role": "user", "content": planning_prompt}];
-            # planning_response = planning_model.simple_send_with_retries(messages);
-            planning_response = self.generate_plan(task, str(repo_context), str(issues));
-            print(f"Planning response: {planning_response}");
-            if planning_response {
-                tasks = self.parse_llm_planning_response(planning_response);
-                if tasks {
-                    return self.resolve_task_dependencies(tasks);
+            # Call the MTLLM function which returns structured Plan objects
+            web_scraped_info = self.background_research(task);
+            plan_objects = self.generate_plan(task, str(repo_context), str(issues), web_scraped_info);
+            print(f"Planning response: {plan_objects}");
+            
+            if plan_objects {
+                # Convert Plan objects to dictionaries for compatibility
+                tasks = [];
+                for plan in plan_objects {
+                    task_dict = {
+                        'name': plan.name,
+                        'type': plan.type,
+                        'priority': plan.priority,
+                        'details': plan.details,
+                        'dependencies': plan.dependencies,
+                        'estimated_effort': plan.estimated_effort
+                    };
+                    if plan.file {
+                        task_dict['file'] = plan.file;
+                    }
+                    tasks.append(task_dict);
                 }
+                
+                print(f"Generated {len(tasks)} structured tasks");
+                
+                # Sort by priority (no need for complex dependency resolution since LLM handles this)
+                def get_priority(task: dict) -> int {
+                    return task['priority'];
+                }
+                sorted_tasks = sorted(tasks, key=get_priority);
+                print(f"Sorted tasks by priority: {[task['name'] for task in sorted_tasks]}");
+                return sorted_tasks;
             }
         } except Exception as e {
             print(f"LLM planning failed: {str(e)}");
         }
-        
-        # Fallback to simple task creation
-        return self.create_simple_task_graph(task, repo_context, issues);}
-
-    
-    """Get the system prompt for the planning LLM"""
-    def get_planning_system_prompt() -> str {
-        return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
-
-        CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
-
-        You should:
-        1. ALWAYS prioritize the user's main task as priority 1
-        2. Break down the main task into smaller, manageable subtasks with priority 1-2
-        3. Only include fixing existing issues (lint, tests) if they directly impact the main task
-        4. Consider dependencies between tasks and order them logically
-        5. Ensure tasks are specific and actionable
-        6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
-        7. When creating new files for the main task, focus on "feature_implementation" task types
-
-        Respond with a JSON array of task objects. Each task should have:
-        - "name": Clear, descriptive task name
-        - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
-        - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
-        - "details": Specific description of what needs to be done
-        - "dependencies": Array of task names that must complete first (empty array if none)
-        - "estimated_effort": "small", "medium", or "large"
-        - "file": (optional) Specific file path if the task is file-specific
-
-        IMPORTANT:
-        - The user's main task gets priority 1
-        - Supporting tasks for the main task get priority 2-3
-        - Existing code fixes only get priority 1-2 if they block the main task
-        - Missing files unrelated to main task get priority 4-5 or are excluded""";
     }
-    
-    """Create a simple task graph when LLM planning fails"""
-    def create_simple_task_graph(task: str, repo_context: Dict, issues: List[Dict]) -> List[Dict] {
-        tasks = [];
+
+    # """Create a comprehensive prompt for the planning LLM"""
+    # def create_planning_prompt(task: str, repo_context: Dict, issues: List[Dict]) -> str {
+    #     prompt_parts = [
+    #         f"MAIN TASK (HIGHEST PRIORITY): {task}",
+    #         "",
+    #         "FOCUS: Create a plan that prioritizes completing the main task above all else.",
+    #         "",
+    #         "REPOSITORY CONTEXT:"
+    #     ];
         
-        # Main task always gets priority 1
-        if task and task != "Analyze and improve the codebase" {
-            task_details = task;
-            # Enhance task details for common requests
-            if 'calculator' in task.lower() {
-                task_details = f"{task}\n\nCreate a simple calculator program that:\n- Supports basic arithmetic operations (+, -, *, /)\n- Handles user input and output\n- Includes error handling for invalid inputs and division by zero\n- Has a clean, user-friendly interface";
-            }
+    #     if repo_context.get('files_in_chat') {
+    #         prompt_parts.append("Files currently being worked on:");
+    #         for file in repo_context['files_in_chat'] {
+    #             prompt_parts.append(f"  - {file}");
+    #         }
+    #         prompt_parts.append("");
+    #     }
+        
+    #     if repo_context.get('missing_files') {
+    #         prompt_parts.append("Missing files mentioned in repo map:");
+    #         for file in repo_context['missing_files'][:3] {
+    #             prompt_parts.append(f"  - {file}");
+    #         }
+    #         if len(repo_context['missing_files']) > 3 {
+    #             prompt_parts.append(f"  ... and {len(repo_context['missing_files']) - 3} more");
+    #         }
+    #         prompt_parts.append("");
+    #     }
+        
+    #     if repo_context.get('repo_map') {
+    #         prompt_parts.append("Repository structure:");
+    #         repo_map = str(repo_context['repo_map']);
+    #         if len(repo_map) > 2000 {
+    #             repo_map = repo_map[:2000] + "... (truncated)";
+    #         }
+    #         prompt_parts.append(repo_map);
+    #         prompt_parts.append("");
+    #     }
+        
+    #     if repo_context.get('git_status') {
+    #         prompt_parts.append("Git status (dirty files):");
+    #         for file in repo_context['git_status'] {
+    #             prompt_parts.append(f"  - {file}");
+    #         }
+    #         prompt_parts.append("");
+    #     }
+        
+    #     if issues {
+    #         prompt_parts.append("Current issues in codebase (fix only if they block the main task):");
+    #         for issue in issues {
+    #             prompt_parts.append(f"  - {issue['type']}: {issue.get('file', 'general')} - {issue['details'][:100]}...");
+    #         }
+    #         prompt_parts.append("");
+    #     }
+        
+    #     prompt_parts.extend([
+    #         "REQUIREMENTS:",
+    #         "1. PRIORITY 1: Create tasks to complete the main task - this is most important",
+    #         "2. Break down the main task into logical, implementable steps",
+    #         "3. Only include existing issue fixes if they directly block the main task",
+    #         "4. Consider dependencies and proper ordering for the main task",
+    #         "5. Missing files unrelated to the main task should be low priority or excluded",
+    #         "6. Be specific about what each task should accomplish for the main goal",
+    #         "",
+    #         "Please analyze the above context and create an optimal task execution plan as a JSON array, focusing primarily on the main task:"
+    #     ]);
+        
+    #     return "\n".join(prompt_parts);
+    # }
+
+    # """Get the system prompt for the planning LLM"""
+    # def get_planning_system_prompt() -> str {
+    #     return """You are an expert software development planning agent. Your job is to analyze a development task and codebase context to create an optimal execution plan.
+
+    #     CRITICAL PRIORITY RULE: The user's main task should ALWAYS be the highest priority. All other tasks (fixing lint errors, missing files, etc.) are secondary unless they directly block the main task.
+
+    #     You should:
+    #     1. ALWAYS prioritize the user's main task as priority 1
+    #     2. Break down the main task into smaller, manageable subtasks with priority 1-2
+    #     3. Only include fixing existing issues (lint, tests) if they directly impact the main task
+    #     4. Consider dependencies between tasks and order them logically
+    #     5. Ensure tasks are specific and actionable
+    #     6. For missing files that are not related to the main task, assign low priority (4-5) or exclude them
+    #     7. When creating new files for the main task, focus on "feature_implementation" task types
+
+    #     Respond with a JSON array of task objects. Each task should have:
+    #     - "name": Clear, descriptive task name
+    #     - "type": One of ["fix_tests", "fix_lint", "fix_security", "feature_implementation", "improvement", "refactor", "documentation"]
+    #     - "priority": Integer (1=highest priority for main task, 2-3=supporting tasks, 4-5=maintenance/optional)
+    #     - "details": Specific description of what needs to be done
+    #     - "dependencies": Array of task names that must complete first (empty array if none)
+    #     - "estimated_effort": "small", "medium", or "large"
+    #     - "file": (optional) Specific file path if the task is file-specific
+
+    #     IMPORTANT:
+    #     - The user's main task gets priority 1
+    #     - Supporting tasks for the main task get priority 2-3
+    #     - Existing code fixes only get priority 1-2 if they block the main task
+    #     - Missing files unrelated to main task get priority 4-5 or are excluded""";
+    # }
+    
+    # """Create a simple task graph when LLM planning fails"""
+    # def create_simple_task_graph(task: str, repo_context: Dict, issues: List[Dict]) -> List[Dict] {
+    #     tasks = [];
+        
+    #     # Main task always gets priority 1
+    #     if task and task != "Analyze and improve the codebase" {
+    #         task_details = task;
+    #         # Enhance task details for common requests
+    #         if 'calculator' in task.lower() {
+    #             task_details = f"{task}\n\nCreate a simple calculator program that:\n- Supports basic arithmetic operations (+, -, *, /)\n- Handles user input and output\n- Includes error handling for invalid inputs and division by zero\n- Has a clean, user-friendly interface";
+    #         }
             
-            tasks.append({
-                "name": task,
-                "type": "feature_implementation",
-                "priority": 1,
-                "details": task_details,
-                "dependencies": [],
-                "estimated_effort": "medium"
-            });
-        }
+    #         tasks.append({
+    #             "name": task,
+    #             "type": "feature_implementation",
+    #             "priority": 1,
+    #             "details": task_details,
+    #             "dependencies": [],
+    #             "estimated_effort": "medium"
+    #         });
+    #     }
         
-        # Add critical issues that might block the main task
-        critical_issues = [];
-        for issue in issues {
-            if issue['type'] == 'test' and issue.get('priority') == 'high' {
-                critical_issues.append(issue);
-            }
-        }
+    #     # Add critical issues that might block the main task
+    #     critical_issues = [];
+    #     for issue in issues {
+    #         if issue['type'] == 'test' and issue.get('priority') == 'high' {
+    #             critical_issues.append(issue);
+    #         }
+    #     }
         
-        for issue in critical_issues {
-            if issue['type'] == 'test' {
-                tasks.append({
-                    "name": "Fix failing tests",
-                    "type": "fix_tests",
-                    "priority": 2,
-                    "details": issue['details'],
-                    "dependencies": [],
-                    "estimated_effort": "medium"
-                });
-            }
-        }
+    #     for issue in critical_issues {
+    #         if issue['type'] == 'test' {
+    #             tasks.append({
+    #                 "name": "Fix failing tests",
+    #                 "type": "fix_tests",
+    #                 "priority": 2,
+    #                 "details": issue['details'],
+    #                 "dependencies": [],
+    #                 "estimated_effort": "medium"
+    #             });
+    #         }
+    #     }
         
-        # Fallback improvement task
-        if task == "Analyze and improve the codebase" and repo_context['files_in_chat'] {
-            tasks.append({
-                "name": "Improve code quality and documentation",
-                "type": "improvement",
-                "priority": 1,
-                "details": "Review and improve code quality, add documentation where needed",
-                "dependencies": [],
-                "estimated_effort": "large"
-            });
-        }
+    #     # Fallback improvement task
+    #     if task == "Analyze and improve the codebase" and repo_context['files_in_chat'] {
+    #         tasks.append({
+    #             "name": "Improve code quality and documentation",
+    #             "type": "improvement",
+    #             "priority": 1,
+    #             "details": "Review and improve code quality, add documentation where needed",
+    #             "dependencies": [],
+    #             "estimated_effort": "large"
+    #         });
+    #     }
         
-        # Sort by priority
-        def get_priority(task: dict) -> int {
-            return task['priority'];
-        }
-        tasks = sorted(tasks, key=get_priority);
-        return tasks;
-    }
-    
+    #     # Sort by priority
+    #     def get_priority(task: dict) -> int {
+    #         return task['priority'];
+    #     }
+    #     tasks = sorted(tasks, key=get_priority);
+    #     return tasks;
+    # }
+
+    # """Parse the LLM's planning response and convert to task objects"""
+    # def parse_llm_planning_response(response: str) -> List[Dict] {
+    #     try {
+    #         json_match = re.search(r'\[.*\]', response, re.DOTALL);
+    #         if json_match {
+    #             json_str = json_match.group(0);
+    #             tasks = json.loads(json_str);
+                
+    #             # Validate task structure
+    #             valid_tasks = [];
+    #             for task in tasks {
+    #                 if isinstance(task, dict) and 'name' in task and 'type' in task {
+    #                     # Set defaults for missing fields
+    #                     task.setdefault('priority', 1);
+    #                     task.setdefault('details', task.get('name', ''));
+    #                     task.setdefault('dependencies', []);
+    #                     task.setdefault('estimated_effort', 'medium');
+    #                     valid_tasks.append(task);
+    #                 }
+    #             }
+    #             return valid_tasks;
+    #         }
+    #     } except (json.JSONDecodeError, Exception) as e {
+    #         print(f"Failed to parse LLM planning response: {str(e)}");
+    #     }
+        
+    #     return [];
+    # }
+
+    # """Sort tasks by dependencies and priority"""
+    # def resolve_task_dependencies(tasks: List[Dict]) -> List[Dict] {
+    #     task_map = {task['name']: task for task in tasks};
+    #     resolved = [];
+    #     remaining = tasks.copy();
+        
+    #     while remaining {
+    #         ready_tasks = [];
+    #         for task in remaining {
+    #             deps = task.get('dependencies', []);
+    #             resolved_names = [t['name'] for t in resolved];
+    #             deps_satisfied = True;
+    #             for dep in deps {
+    #                 if dep not in resolved_names {
+    #                     deps_satisfied = False;
+    #                     break;
+    #                 }
+    #             }
+    #             if deps_satisfied {
+    #                 ready_tasks.append(task);
+    #             }
+    #         }
+            
+    #         if not ready_tasks {
+    #             # Break circular dependencies by taking the highest priority task
+    #             min_priority = min([task['priority'] for task in remaining]);
+    #             for task in remaining {
+    #                 if task['priority'] == min_priority {
+    #                     ready_tasks = [task];
+    #                     break;
+    #                 }
+    #             }
+    #         }
+            
+    #         # Sort ready tasks by priority
+    #         def get_task_priority(task: dict) -> int {
+    #             return task['priority'];
+    #         }
+    #         ready_tasks = sorted(ready_tasks, key=get_task_priority);
+    #         for task in ready_tasks {
+    #             resolved.append(task);
+    #             remaining.remove(task);
+    #         }
+    #     }
+        
+    #     return resolved;
+    # }
 }
 
 
@@ -718,14 +759,13 @@ walker GeniusAgent {
         # Initialize web searcher if available
         if WEB_SEARCH_AVAILABLE and create_web_searcher {
             self.web_searcher = create_web_searcher(print_error=self.coder.io.tool_error);
-            # print("Web searcher initialized successfully.");
         } else {
             self.web_searcher = None;
         }
         
         # Set planning model
         # self.planning_model = self.planning_model or self.coder.main_model;
-        self.planning_model = Model(model_name="gpt-4.1-mini");
+        self.planning_model = Model(model_name="gpt-4.1-mini", verbose=True);
         
         # Create the workflow graph
         planning_node = PlanningNode(task=self.task, status="pending", planning_model=self.planning_model);

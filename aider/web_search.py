@@ -3,6 +3,7 @@
 import os
 import requests
 from typing import Optional, List, Dict, Any
+import jaclang
 
 
 class WebSearcher:
