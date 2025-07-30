@@ -117,3 +117,64 @@ def main():
 
 if __name__ == "__main__":
     main()
+class Calculator:
+    """Basic calculator with addition, subtraction, multiplication, and division."""
+
+    def add(self, a, b):
+        return a + b
+
+    def subtract(self, a, b):
+        return a - b
+
+    def multiply(self, a, b):
+        return a * b
+
+    def divide(self, a, b):
+        if b == 0:
+            raise ValueError("Cannot divide by zero.")
+        return a / b
+
+
+def main():
+    calc = Calculator()
+    print("Simple Calculator")
+    while True:
+        try:
+            a = float(input("Enter first number (or 'q' to quit): "))
+        except ValueError:
+            print("Exiting calculator.")
+            break
+        try:
+            b = float(input("Enter second number: "))
+        except ValueError:
+            print("Invalid input for second number. Try again.")
+            continue
+
+        print("Select operation:")
+        print("1. Add")
+        print("2. Subtract")
+        print("3. Multiply")
+        print("4. Divide")
+
+        choice = input("Enter choice (1/2/3/4): ")
+
+        try:
+            if choice == '1':
+                result = calc.add(a, b)
+            elif choice == '2':
+                result = calc.subtract(a, b)
+            elif choice == '3':
+                result = calc.multiply(a, b)
+            elif choice == '4':
+                result = calc.divide(a, b)
+            else:
+                print("Invalid choice. Try again.")
+                continue
+            print(f"Result: {result}")
+        except ValueError as e:
+            print(f"Error: {e}")
+
+        print()
+
+if __name__ == "__main__":
+    main()
