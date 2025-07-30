@@ -69,7 +69,8 @@ def main():
             break
 
         if check_game_over(game_state):
-            print(f"Game over! The number was {game_state['number_to_guess']}.")
+            if not game_state["won"]:
+                print(f"Game over! The number was {game_state['number_to_guess']}.")
             break
 
 if __name__ == "__main__":
