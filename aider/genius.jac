@@ -519,8 +519,8 @@ node EditorNode {
     #             'create' in task.get('details', '').lower());
     # }
 
-    """Determine if web search is required for this task"""
-    def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool by self.editor_model();
+    """Determine if web search is required for this task. if you dont have the latest syntaxes of a language, you should search the web for it."""
+    def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool by self.editor_model(method="Reason");
 
     """Generate relevant search queries for the task"""
     def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
@@ -894,7 +894,7 @@ walker GeniusAgent {
             message = here.prepare_task_message(current_task, self.last_error_context);
             
             # Perform web search if beneficial
-            if self.enable_web_search { # and here.need_web_search(current_task, self.web_searcher, self.last_error_context) 
+            if self.enable_web_search and here.need_web_search(current_task, self.web_searcher, self.last_error_context) {
                 web_context = here.perform_web_search(current_task, self.web_searcher, self.coder, self.last_error_context);
                 if web_context {
                     message += f"\n\nAdditional context from web search:\n{web_context}";
