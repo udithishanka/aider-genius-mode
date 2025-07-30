@@ -56,8 +56,40 @@ def main():
             print("Invalid input. Please enter numeric values.")
 
 
+import argparse
+import sys
+
+def cli():
+    parser = argparse.ArgumentParser(description="Basic calculator CLI")
+    parser.add_argument("a", type=float, help="First number")
+    parser.add_argument("b", type=float, help="Second number")
+    parser.add_argument(
+        "operation",
+        choices=["add", "subtract", "multiply", "divide"],
+        help="Operation to perform",
+    )
+    args = parser.parse_args()
+
+    calc = Calculator()
+    try:
+        if args.operation == "add":
+            result = calc.add(args.a, args.b)
+        elif args.operation == "subtract":
+            result = calc.subtract(args.a, args.b)
+        elif args.operation == "multiply":
+            result = calc.multiply(args.a, args.b)
+        elif args.operation == "divide":
+            result = calc.divide(args.a, args.b)
+        print(f"Result: {result}")
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        cli()
+    else:
+        main()
 class Calculator:
     """Basic calculator with addition, subtraction, multiplication, and division."""
 
