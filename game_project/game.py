@@ -1,5 +1,6 @@
 import random
 
+
 def init_game():
     """Initialize the game state."""
     number_to_guess = random.randint(1, 100)
@@ -12,6 +13,7 @@ def init_game():
         "game_over": False,
         "won": False,
     }
+
 
 def process_guess(game_state, guess):
     """Process the player's guess and update the game state."""
@@ -27,6 +29,7 @@ def process_guess(game_state, guess):
     else:
         return "Too high!"
 
+
 def check_game_over(game_state):
     """Check if the game is over due to max attempts."""
     if game_state["attempts"] >= game_state["max_attempts"]:
@@ -34,10 +37,11 @@ def check_game_over(game_state):
         return True
     return False
 
+
 def main():
     print("Welcome to the Number Guessing Game!")
     print("I'm thinking of a number between 1 and 100.")
-    print(f"You have 10 attempts to guess it.")
+    print("You have 10 attempts to guess it.")
 
     game_state = init_game()
 
@@ -72,6 +76,7 @@ def main():
             if not game_state["won"]:
                 print(f"Game over! The number was {game_state['number_to_guess']}.")
             break
+
 
 if __name__ == "__main__":
     main()
