@@ -1066,11 +1066,30 @@ walker GeniusAgent {
             print("Final validation passed - All validation checks completed successfully");
         } else {
             here.status = "failed";
-            print("Validation issues found - Some validation checks failed but execution continues");
+            print("Validation issues found - Some validation checks failed");
             
-            # Log specific validation failures
+            # Auto-fix lint issues if they exist
+            if not validation_details['lint_passed'] and validation_details['lint_output'] {
+                self.coder.io.tool_output("Lint issues detected - Attempting automatic fix");
+                self.coder.io.tool_output(validation_details['lint_output']);
+                
+                # Automatically fix lint issues using aider's built-in capability
+                success = self.auto_fix_lint_issues(validation_details['lint_output']);
+                if success {
+                    # Re-run validation after fixing
+                    (revalidation_success, revalidation_details) = here.code_execution_validation(self.coder, self.enable_security_scan);
+                    if revalidation_details['lint_passed'] {
+                        self.coder.io.tool_output("Lint issues successfully fixed!");
+                        validation_details['lint_passed'] = True;
+                        validation_details['lint_output'] = None;
+                        self.validation_results = validation_details;
+                    }
+                }
+            }
+            
+            # Log remaining validation failures
             if not validation_details['lint_passed'] {
-                self.coder.io.tool_output("Lint issues found:");
+                self.coder.io.tool_output("Remaining lint issues:");
                 self.coder.io.tool_output(validation_details['lint_output']);
             }
             if not validation_details['tests_passed'] {
@@ -1135,6 +1154,31 @@ walker GeniusAgent {
         
         for line in report_lines {
             self.coder.io.tool_output(line);
+        }
+    }
+    
+    """Automatically fix lint issues using aider's built-in linting capabilities"""
+    def auto_fix_lint_issues(lint_output: str) -> bool {
+        try {
+            # Create a focused message to fix lint issues
+            lint_fix_message = f"Fix the following linting issues:\n\n{lint_output}\n\nPlease fix only these specific linting errors without changing the functionality of the code. Focus on:\n- Adding missing blank lines as required by PEP 8\n- Fixing line length issues\n- Correcting import statement formatting\n- Fixing whitespace and indentation issues\n\nMake minimal changes to address only the linting errors shown above.";
+            
+            # Use aider to fix the lint issues
+            self.coder.run(with_message=lint_fix_message);
+            
+            # Auto-commit the lint fixes if enabled
+            if (self.coder.auto_commits and 
+                self.coder.repo and 
+                self.coder.repo.is_dirty()) {
+                commit_msg = "Genius Agent: Auto-fix lint issues";
+                self.coder.commands.cmd_commit(commit_msg);
+                self.coder.io.tool_output(f"Genius Agent - Phase: Git | Action: Lint fixes committed | Reasoning: {commit_msg}");
+            }
+            
+            return True;
+        } except Exception as e {
+            self.coder.io.tool_output(f"Auto-fix lint issues failed: {str(e)}");
+            return False;
         }
     }
 }
