@@ -973,7 +973,15 @@ walker GeniusAgent {
                 files_before = set(self.coder.abs_fnames) if self.coder.abs_fnames else set();
                 repo_dirty_before = self.coder.repo.is_dirty() if self.coder.repo else False;
                 
+                # Temporarily disable auto-commits to prevent automatic committing
+                original_auto_commits = self.coder.auto_commits;
+                self.coder.auto_commits = False;
+                
                 self.coder.run(with_message=message);
+                
+                # Restore original auto-commit setting
+                self.coder.auto_commits = original_auto_commits;
+                
                 edit_success = True;
                 
                 # Check if actual changes were made
@@ -1000,6 +1008,10 @@ walker GeniusAgent {
                     }
                 }
             } except Exception as e {
+                # Restore original auto-commit setting in case of error
+                if 'original_auto_commits' in locals() {
+                    self.coder.auto_commits = original_auto_commits;
+                }
                 self.coder.io.tool_output(f"Genius Agent - Phase: Editing | Action: Code generation failed | Reasoning: {str(e)}");
                 edit_success = False;
                 self.last_error_context = str(e);
@@ -1031,13 +1043,13 @@ walker GeniusAgent {
                 self.last_error_context = None;
                 
                 # Auto-commit if enabled
-                if (self.coder.auto_commits and 
-                    self.coder.repo and 
-                    self.coder.repo.is_dirty()) {
-                    commit_msg = f"Genius Agent: {current_task['name']}";
-                    self.coder.commands.cmd_commit(commit_msg);
-                    self.coder.io.tool_output(f"Genius Agent - Phase: Git | Action: Changes committed | Reasoning: {commit_msg}");
-                }
+                # if (self.coder.auto_commits and 
+                #     self.coder.repo and 
+                #     self.coder.repo.is_dirty()) {
+                #     commit_msg = f"Genius Agent: {current_task['name']}";
+                #     self.coder.commands.cmd_commit(commit_msg);
+                #     self.coder.io.tool_output(f"Genius Agent - Phase: Git | Action: Changes committed | Reasoning: {commit_msg}");
+                # }
             }
         }
         
