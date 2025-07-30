@@ -25,7 +25,11 @@ def main():
             else:
                 print("Correct! You guessed the number.")
                 break
-        play_again = input("Play again? (y/n): ").strip().lower()
+        while True:
+            play_again = input("Play again? (y/n): ").strip().lower()
+            if play_again in ('y', 'n'):
+                break
+            print("Please enter 'y' or 'n'.")
         if play_again != 'y':
             print("Thanks for playing! Goodbye.")
             break
