@@ -645,6 +645,7 @@ node ValidatorNode {
                     }
                 }
                 
+                print(f"Lint output: {lint_output}");
                 validation_results['lint_output'] = lint_output;
                 validation_results['lint_passed'] = not lint_output.strip();
             } except Exception as e {
@@ -659,6 +660,7 @@ node ValidatorNode {
             print("Running test validation");
             try {
                 test_output = coder.commands.cmd_test(coder.test_cmd);
+                print(f"Test output: {test_output}");
                 validation_results['test_output'] = test_output;
                 validation_results['tests_passed'] = test_output and "FAILED" not in test_output;
             } except Exception as e {
