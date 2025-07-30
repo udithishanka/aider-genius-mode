@@ -10,10 +10,11 @@ def main():
             if guess_str.lower() == 'q':
                 print("Thanks for playing! Goodbye.")
                 return
-            if not guess_str.isdigit():
-                print("Please enter a valid integer.")
+            try:
+                guess = int(guess_str)
+            except ValueError:
+                print("Invalid input. Please enter a valid integer.")
                 continue
-            guess = int(guess_str)
             if guess < 1 or guess > 100:
                 print("Your guess must be between 1 and 100.")
                 continue
