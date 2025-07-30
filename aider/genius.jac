@@ -1066,42 +1066,11 @@ walker GeniusAgent {
             print("Final validation passed - All validation checks completed successfully");
         } else {
             here.status = "failed";
-            print("Validation issues found - Some validation checks failed");
+            print("Validation issues found - Some validation checks failed but execution continues");
             
-            # Auto-fix lint issues if they exist with multiple attempts
-            if not validation_details['lint_passed'] and validation_details['lint_output'] {
-                self.coder.io.tool_output("Lint issues detected - Attempting automatic fix");
-                self.coder.io.tool_output(validation_details['lint_output']);
-                
-                # Try multiple approaches to fix lint issues
-                max_attempts = 2;
-                for attempt in range(max_attempts) {
-                    success = self.auto_fix_lint_issues(validation_details['lint_output'], attempt + 1);
-                    if success {
-                        # Re-run validation after fixing
-                        (revalidation_success, revalidation_details) = here.code_execution_validation(self.coder, self.enable_security_scan);
-                        if revalidation_details['lint_passed'] {
-                            self.coder.io.tool_output("Lint issues successfully fixed!");
-                            validation_details['lint_passed'] = True;
-                            validation_details['lint_output'] = None;
-                            self.validation_results = validation_details;
-                            break;
-                        } else {
-                            # Update lint output for next attempt
-                            validation_details['lint_output'] = revalidation_details['lint_output'];
-                            if attempt < max_attempts - 1 {
-                                self.coder.io.tool_output(f"Attempt {attempt + 1} partially successful, trying again...");
-                            }
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-            
-            # Log remaining validation failures
+            # Log specific validation failures
             if not validation_details['lint_passed'] {
-                self.coder.io.tool_output("Remaining lint issues:");
+                self.coder.io.tool_output("Lint issues found:");
                 self.coder.io.tool_output(validation_details['lint_output']);
             }
             if not validation_details['tests_passed'] {
@@ -1167,58 +1136,6 @@ walker GeniusAgent {
         for line in report_lines {
             self.coder.io.tool_output(line);
         }
-    }
-    
-    """Automatically fix lint issues using aider's built-in linting capabilities"""
-    def auto_fix_lint_issues(lint_output: str, attempt: int = 1) -> bool {
-        try {
-            # Check for duplicate content issues first
-            duplicate_issues = self.detect_duplicate_content_issues(lint_output);
-            
-            # Create different approaches based on attempt number
-            if attempt == 1 and not duplicate_issues {
-                # First attempt: Focus on common PEP 8 issues
-                lint_fix_message = f"Fix the following linting issues:\n\n{lint_output}\n\nPlease fix only these specific linting errors without changing the functionality of the code. Focus on:\n- Adding missing blank lines as required by PEP 8\n- Fixing line length issues\n- Correcting import statement formatting\n- Fixing whitespace and indentation issues\n- Remove duplicate imports and class definitions\n\nMake minimal changes to address only the linting errors shown above. Do not duplicate code or create redundant definitions.";
-            } else {
-                # Second attempt or duplicate content detected: More aggressive cleanup
-                lint_fix_message = f"The files have significant linting issues that require comprehensive cleanup:\n\n{lint_output}\n\nInstructions:\n1. Remove ALL duplicate class definitions and imports\n2. Move ALL imports to the top of the file\n3. Fix ALL PEP 8 style issues (blank lines, whitespace, etc.)\n4. Ensure each class and function is defined only ONCE\n5. Clean up the file structure completely\n6. Remove any redundant or repeated code blocks\n\nPlease completely rewrite the files if necessary to eliminate all duplicate content and fix all lint issues. The files should be clean and properly formatted.";
-            }
-            
-            # Use aider to fix the lint issues
-            self.coder.run(with_message=lint_fix_message);
-            
-            # Auto-commit the lint fixes if enabled
-            if (self.coder.auto_commits and 
-                self.coder.repo and 
-                self.coder.repo.is_dirty()) {
-                commit_msg = f"Genius Agent: Auto-fix lint issues (attempt {attempt})";
-                self.coder.commands.cmd_commit(commit_msg);
-                self.coder.io.tool_output(f"Genius Agent - Phase: Git | Action: Lint fixes committed | Reasoning: {commit_msg}");
-            }
-            
-            return True;
-        } except Exception as e {
-            self.coder.io.tool_output(f"Auto-fix lint issues failed (attempt {attempt}): {str(e)}");
-            return False;
-        }
-    }
-    
-    """Detect if lint issues indicate duplicate content problems"""
-    def detect_duplicate_content_issues(lint_output: str) -> bool {
-        duplicate_indicators = [
-            "redefinition of unused",
-            "F811",
-            "import not at top of file",
-            "E402"
-        ];
-        
-        duplicate_count = 0;
-        for indicator in duplicate_indicators {
-            duplicate_count += lint_output.count(indicator);
-        }
-        
-        # If we have more than 3 duplicate-related issues, consider it a duplicate content problem
-        return duplicate_count > 3;
     }
 }
 
