@@ -519,83 +519,82 @@ node EditorNode {
     #             'create' in task.get('details', '').lower());
     # }
 
+    # """Generate relevant search queries for the task"""
+    # def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
+    #     queries = [];
+    #     details = task.get('details', '').lower();
+        
+    #     if task['type'] == 'feature_implementation' {
+    #         task_details = task.get('details', '');
+    #         if 'jac language' in details or 'jac' in details {
+    #             queries.extend([
+    #                 "jac programming language syntax guide",
+    #                 "jac language examples tutorial",
+    #                 "object spatial programming jac"
+    #             ]);
+    #         } elif 'calculator' in details {
+    #             queries.extend([
+    #                 "python calculator implementation tutorial",
+    #                 "simple calculator program with error handling",
+    #                 "basic arithmetic calculator python code example"
+    #             ]);
+    #         } else {
+    #             queries.append(f"how to implement {task_details} programming");
+    #         }
+            
+    #         if 'api' in details {
+    #             queries.append("REST API implementation guide");
+    #         }
+    #         if 'test' in details {
+    #             queries.append("unit testing best practices");
+    #         }
+    #     } elif task['type'] == 'fix_tests' {
+    #         queries.extend([
+    #             "fix failing unit tests debugging",
+    #             "test failure troubleshooting guide"
+    #         ]);
+    #     } elif task['type'] == 'fix_lint' {
+    #         queries.extend([
+    #             "code linting errors how to fix",
+    #             "static analysis warnings solutions"
+    #         ]);
+    #     } elif last_error_context {
+    #         error_key_terms = last_error_context[:100];
+    #         queries.append(f"python error solution {error_key_terms}");
+    #     }
+        
+    #     # Remove duplicates while preserving order
+    #     unique_queries = [];
+    #     seen = set();
+    #     for query in queries {
+    #         if query.lower() not in seen {
+    #             unique_queries.append(query);
+    #             seen.add(query.lower());
+    #         }
+    #     }
+        
+    #     return unique_queries;
+    # }
+
     """Determine if web search is required for this task. if you dont have the latest syntaxes of a language, you should search the web for it."""
     def need_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> bool by self.editor_model(method="Reason");
 
-    """Generate relevant search queries for the task"""
-    def generate_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] {
-        queries = [];
-        details = task.get('details', '').lower();
-        
-        if task['type'] == 'feature_implementation' {
-            task_details = task.get('details', '');
-            if 'jac language' in details or 'jac' in details {
-                queries.extend([
-                    "jac programming language syntax guide",
-                    "jac language examples tutorial",
-                    "object spatial programming jac"
-                ]);
-            } elif 'calculator' in details {
-                queries.extend([
-                    "python calculator implementation tutorial",
-                    "simple calculator program with error handling",
-                    "basic arithmetic calculator python code example"
-                ]);
-            } else {
-                queries.append(f"how to implement {task_details} programming");
-            }
-            
-            if 'api' in details {
-                queries.append("REST API implementation guide");
-            }
-            if 'test' in details {
-                queries.append("unit testing best practices");
-            }
-        } elif task['type'] == 'fix_tests' {
-            queries.extend([
-                "fix failing unit tests debugging",
-                "test failure troubleshooting guide"
-            ]);
-        } elif task['type'] == 'fix_lint' {
-            queries.extend([
-                "code linting errors how to fix",
-                "static analysis warnings solutions"
-            ]);
-        } elif last_error_context {
-            error_key_terms = last_error_context[:100];
-            queries.append(f"python error solution {error_key_terms}");
-        }
-        
-        # Remove duplicates while preserving order
-        unique_queries = [];
-        seen = set();
-        for query in queries {
-            if query.lower() not in seen {
-                unique_queries.append(query);
-                seen.add(query.lower());
-            }
-        }
-        
-        return unique_queries;
-    }
-    
+    def generate_web_search_queries(task: Dict, last_error_context: Optional[str] = None) -> List[str] by self.editor_model(method="Reason");
+
     """Perform web search for additional context using Serper API"""
-    def perform_web_search(task: Dict, web_searcher: Any, coder: Any, last_error_context: Optional[str] = None) -> Optional[str] {
-        search_queries = self.generate_search_queries(task, last_error_context);
+    def perform_web_search(task: Dict, web_searcher: Any, last_error_context: Optional[str] = None) -> Optional[str] {
+        search_queries = self.generate_web_search_queries(task, last_error_context);
         if not search_queries {
             return None;
         }
         
-        print(f"STARTING WEB SEARCH - {len(search_queries)} queries");
-        print("Gathering additional information to improve implementation quality");
-        
         try {
             search_results = "";
-            for query in search_queries[:2] {  # Limit to 2 queries to avoid too much context
-                print(f"Searching for: {query}");
+            for query in search_queries[:2] { 
+                search_results += f"Searching for: {query}\n";
                 result = web_searcher.search(query);
+                print(f"Search result for '{query}': {result}");
                 if result and not result.startswith('No') and len(result.strip()) > 50 {
-                    # Truncate very long results to avoid context overflow
                     if len(result) > 1000 {
                         result = result[:1000] + "... (truncated)";
                     }
@@ -625,9 +624,6 @@ node ValidatorNode {
     
     """Comprehensive validation phase with testing, linting, and security scanning."""
     def code_execution_validation(coder: Any, enable_security_scan: bool = True) -> Tuple[bool, Dict] {
-        print("Running comprehensive validation suite");
-        print("Ensuring code quality, functionality, and security");
-        
         validation_results = {
             'lint_passed': True,
             'tests_passed': True,
@@ -895,7 +891,9 @@ walker GeniusAgent {
             
             # Perform web search if beneficial
             if self.enable_web_search and here.need_web_search(current_task, self.web_searcher, self.last_error_context) {
-                web_context = here.perform_web_search(current_task, self.web_searcher, self.coder, self.last_error_context);
+                print(f"Performing web search for task: {current_task}");
+                web_context = here.perform_web_search(current_task, self.web_searcher, self.last_error_context);
+                print(f"Web search context: {web_context}");
                 if web_context {
                     message += f"\n\nAdditional context from web search:\n{web_context}";
                     here.web_context = web_context;
