@@ -46,7 +46,9 @@ def main():
     game_state = init_game()
 
     while not game_state["game_over"]:
-        print(f"\nAttempts left: {game_state['max_attempts'] - game_state['attempts']}")
+        print(
+            f"\nAttempts left: {game_state['max_attempts'] - game_state['attempts']}"
+        )
         user_input = input("Enter your guess (or type 'quit' to exit): ").strip().lower()
 
         if user_input == "quit":
