@@ -670,110 +670,22 @@ node ValidatorNode {
             print(f"Skipping lint validation: auto_lint={getattr(coder, 'auto_lint', None)}, abs_fnames={getattr(coder, 'abs_fnames', None)}");
         }
         
-        # Run tests - check for both auto_test mode and any available test command
-        test_cmd_to_use = None;
-        
-        # Determine what test command to use
-        if hasattr(coder, 'test_cmd') and coder.test_cmd {
-            if isinstance(coder.test_cmd, str) and coder.test_cmd.strip() {
-                test_cmd_to_use = coder.test_cmd;
-            } elif isinstance(coder.test_cmd, list) and len(coder.test_cmd) > 0 {
-                test_cmd_to_use = " ".join(coder.test_cmd);
-            }
-        }
-        
-        # Fallback: look for common test patterns in the repository
-        if not test_cmd_to_use {
-            # Check if pytest is available and there are test files
-            import os;
-            import glob;
-            
-            test_files = glob.glob("test_*.py") + glob.glob("*_test.py") + glob.glob("tests/*.py");
-            if test_files {
-                # Try pytest first, but with better error handling
-                try {
-                    import subprocess;
-                    result = subprocess.run(['python', '-m', 'pytest', '--version'], 
-                                          capture_output=True, text=True, timeout=10);
-                    if result.returncode == 0 {
-                        test_cmd_to_use = "python -m pytest -v";
-                        print("Using pytest as test command");
-                    } else {
-                        # Fallback to unittest
-                        test_cmd_to_use = f"python -m unittest discover -s . -p 'test_*.py' -v";
-                        print("Using unittest as test command (pytest not available)");
-                    }
-                } except Exception {
-                    # Fallback to unittest
-                    test_cmd_to_use = f"python -m unittest discover -s . -p 'test_*.py' -v";
-                    print("Using unittest as fallback test command");
-                }
-            }
-        }
-        
-        # Run tests if we have a command or auto_test is enabled
-        should_run_tests = (getattr(coder, 'auto_test', False) and test_cmd_to_use) or test_cmd_to_use;
-        
-        if should_run_tests and test_cmd_to_use {
+        # Run tests
+        if coder.auto_test and coder.test_cmd {
             print("Running test validation");
             try {
-                print(f"Running test command: {test_cmd_to_use}");
-                
-                # Use the coder's cmd_test if available, otherwise run directly
-                if hasattr(coder, 'commands') and hasattr(coder.commands, 'cmd_test') {
-                    test_output = coder.commands.cmd_test(test_cmd_to_use);
-                } 
-                # else {
-                    # # Run test command directly
-                    # import subprocess;
-                    # result = subprocess.run(
-                    #     test_cmd_to_use.split(),
-                    #     capture_output=True,
-                    #     text=True,
-                    #     cwd=os.getcwd(),
-                    #     timeout=60
-                    # );
-                    
-                    # # Handle test results properly
-                    # if result.returncode == 0 {
-                    #     test_output = None;  # Success case
-                    # } else {
-                    #     test_output = result.stdout + result.stderr;
-                        
-                    #     # Special handling for pytest environment issues
-                    #     if "ModuleNotFoundError" in test_output and "pytest" in test_cmd_to_use {
-                    #         print("Pytest failed due to environment issues, trying unittest fallback");
-                    #         unittest_cmd = "python -m unittest discover -s . -p 'test_*.py' -v";
-                    #         result = subprocess.run(
-                    #             unittest_cmd.split(),
-                    #             capture_output=True,
-                    #             text=True,
-                    #             cwd=os.getcwd(),
-                    #             timeout=60
-                    #         );
-                    #         if result.returncode == 0 {
-                    #             test_output = None;  # Success with unittest
-                    #         } else {
-                    #             test_output = result.stdout + result.stderr;
-                    #         }
-                    #     }
-                    # }
-                # }
-                
+                print(f"Running test command: {coder.test_cmd}");
+                test_output = coder.commands.cmd_test(coder.test_cmd);
                 print(f"Test output: {test_output}");
                 validation_results['test_output'] = test_output;
-                # Tests pass if output is None (success) or doesn't contain failure indicators
-                validation_results['tests_passed'] = (test_output is None or 
-                                                     ("FAILED" not in test_output and 
-                                                      "ERROR" not in test_output and
-                                                      "FAIL" not in test_output));
+                validation_results['tests_passed'] = test_output and "FAILED" not in test_output;
             } except Exception as e {
                 print(f"Test validation failed: {str(e)}");
                 validation_results['tests_passed'] = False;
                 validation_results['test_output'] = str(e);
             }
         } else {
-            print(f"Skipping test validation: auto_test={getattr(coder, 'auto_test', None)}, test_cmd={getattr(coder, 'test_cmd', None)}, found_test_cmd={test_cmd_to_use}");
+            print(f"Skipping test validation: auto_test={getattr(coder, 'auto_test', None)}, test_cmd={getattr(coder, 'test_cmd', None)}");
         }
         
         # Run security scan
