@@ -722,42 +722,43 @@ node ValidatorNode {
                 # Use the coder's cmd_test if available, otherwise run directly
                 if hasattr(coder, 'commands') and hasattr(coder.commands, 'cmd_test') {
                     test_output = coder.commands.cmd_test(test_cmd_to_use);
-                } else {
-                    # Run test command directly
-                    import subprocess;
-                    result = subprocess.run(
-                        test_cmd_to_use.split(),
-                        capture_output=True,
-                        text=True,
-                        cwd=os.getcwd(),
-                        timeout=60
-                    );
+                } 
+                # else {
+                    # # Run test command directly
+                    # import subprocess;
+                    # result = subprocess.run(
+                    #     test_cmd_to_use.split(),
+                    #     capture_output=True,
+                    #     text=True,
+                    #     cwd=os.getcwd(),
+                    #     timeout=60
+                    # );
                     
-                    # Handle test results properly
-                    if result.returncode == 0 {
-                        test_output = None;  # Success case
-                    } else {
-                        test_output = result.stdout + result.stderr;
+                    # # Handle test results properly
+                    # if result.returncode == 0 {
+                    #     test_output = None;  # Success case
+                    # } else {
+                    #     test_output = result.stdout + result.stderr;
                         
-                        # Special handling for pytest environment issues
-                        if "ModuleNotFoundError" in test_output and "pytest" in test_cmd_to_use {
-                            print("Pytest failed due to environment issues, trying unittest fallback");
-                            unittest_cmd = "python -m unittest discover -s . -p 'test_*.py' -v";
-                            result = subprocess.run(
-                                unittest_cmd.split(),
-                                capture_output=True,
-                                text=True,
-                                cwd=os.getcwd(),
-                                timeout=60
-                            );
-                            if result.returncode == 0 {
-                                test_output = None;  # Success with unittest
-                            } else {
-                                test_output = result.stdout + result.stderr;
-                            }
-                        }
-                    }
-                }
+                    #     # Special handling for pytest environment issues
+                    #     if "ModuleNotFoundError" in test_output and "pytest" in test_cmd_to_use {
+                    #         print("Pytest failed due to environment issues, trying unittest fallback");
+                    #         unittest_cmd = "python -m unittest discover -s . -p 'test_*.py' -v";
+                    #         result = subprocess.run(
+                    #             unittest_cmd.split(),
+                    #             capture_output=True,
+                    #             text=True,
+                    #             cwd=os.getcwd(),
+                    #             timeout=60
+                    #         );
+                    #         if result.returncode == 0 {
+                    #             test_output = None;  # Success with unittest
+                    #         } else {
+                    #             test_output = result.stdout + result.stderr;
+                    #         }
+                    #     }
+                    # }
+                # }
                 
                 print(f"Test output: {test_output}");
                 validation_results['test_output'] = test_output;
