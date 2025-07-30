@@ -633,15 +633,28 @@ node ValidatorNode {
             'security_output': None
         };
         
-        # Run linting
+        # Run linting on files that are in the chat (recently edited files)
         if coder.auto_lint and coder.abs_fnames {
             print("Running linting validation");
             try {
                 lint_output = "";
-                for fname in list(coder.abs_fnames) {
-                    file_lint = coder.commands.cmd_lint(fname);
-                    if file_lint and file_lint.strip() {
-                        lint_output += f"\n{fname}:\n{file_lint}";
+                # Get files to lint - use the files currently in chat
+                files_to_lint = list(coder.abs_fnames);
+                print(f"Linting files: {files_to_lint}");
+                
+                for fname in files_to_lint {
+                    # Use the coder's linter directly for fatal errors
+                    if hasattr(coder, 'linter') and coder.linter {
+                        file_lint = coder.linter.lint(fname);
+                        if file_lint and file_lint.strip() {
+                            lint_output += f"\n=== Fatal/Syntax Errors in {fname} ===\n{file_lint}\n";
+                        }
+                    }
+                    
+                    # Also run a comprehensive style check if requested
+                    style_lint = self.run_comprehensive_lint(fname);
+                    if style_lint and style_lint.strip() {
+                        lint_output += f"\n=== Style Issues in {fname} ===\n{style_lint}\n";
                     }
                 }
                 
@@ -653,12 +666,15 @@ node ValidatorNode {
                 validation_results['lint_passed'] = False;
                 validation_results['lint_output'] = str(e);
             }
+        } else {
+            print(f"Skipping lint validation: auto_lint={getattr(coder, 'auto_lint', None)}, abs_fnames={getattr(coder, 'abs_fnames', None)}");
         }
         
         # Run tests
         if coder.auto_test and coder.test_cmd {
             print("Running test validation");
             try {
+                print(f"Running test command: {coder.test_cmd}");
                 test_output = coder.commands.cmd_test(coder.test_cmd);
                 print(f"Test output: {test_output}");
                 validation_results['test_output'] = test_output;
@@ -668,6 +684,8 @@ node ValidatorNode {
                 validation_results['tests_passed'] = False;
                 validation_results['test_output'] = str(e);
             }
+        } else {
+            print(f"Skipping test validation: auto_test={getattr(coder, 'auto_test', None)}, test_cmd={getattr(coder, 'test_cmd', None)}");
         }
         
         # Run security scan
@@ -691,6 +709,54 @@ node ValidatorNode {
         print(f"Lint: {lint_status}, Tests: {test_status}, Security: {security_status}");
         
         return (overall_success, validation_results);
+    }
+    
+    """Run comprehensive linting that includes style checks"""
+    def run_comprehensive_lint(fname: str) -> Optional[str] {
+        if not fname.endswith('.py') {
+            return None;
+        }
+        
+        try {
+            import subprocess;
+            
+            # Try flake8 first for comprehensive Python linting
+            try {
+                result = subprocess.run(
+                    ['flake8', '--max-line-length=88', '--extend-ignore=E203,W503', fname],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                );
+                if result.returncode != 0 and result.stdout.strip() {
+                    return result.stdout.strip();
+                }
+            } except (FileNotFoundError, subprocess.TimeoutExpired) {
+                # Flake8 not available or timed out
+                print("Flake8 not available or timed out");
+            }
+            
+            # Try pycodestyle as fallback
+            try {
+                result = subprocess.run(
+                    ['pycodestyle', '--max-line-length=88', fname],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                );
+                if result.returncode != 0 and result.stdout.strip() {
+                    return result.stdout.strip();
+                }
+            } except (FileNotFoundError, subprocess.TimeoutExpired) {
+                # Pycodestyle not available or timed out
+                print("Pycodestyle not available or timed out");
+            }
+            
+            return None;
+        } except Exception as e {
+            print(f"Error in comprehensive lint: {str(e)}");
+            return None;
+        }
     }
     
     """Run basic security scanning on the codebase"""
