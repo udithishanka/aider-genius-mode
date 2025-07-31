@@ -36,6 +36,21 @@ sem Plan.dependencies = "List of task names that must be completed before this t
 sem Plan.estimated_effort = "Development effort estimate: small, medium, or large";
 sem Plan.file = "Specific file path if the task is focused on a particular file (optional)";
 
+obj SecurityScanResult {
+    has file_path: str;
+    has issues: List[str] = [];
+    has analysis: Dict[str, str] = {};
+    has risk_level: str = "low";
+    has recommendations: List[str] = [];
+}
+
+sem SecurityScanResult = "Security analysis result for a specific file";
+sem SecurityScanResult.file_path = "Path to the file that was analyzed";
+sem SecurityScanResult.issues = "List of specific security issues found (empty if none)";
+sem SecurityScanResult.analysis = "Detailed security analysis breakdown by category";
+sem SecurityScanResult.risk_level = "Overall risk assessment: low, medium, high, critical";
+sem SecurityScanResult.recommendations = "List of security improvement recommendations";
+
 
 node PlanningNode {
     has task: str = "";
@@ -621,6 +636,10 @@ node ValidatorNode {
     has issues: list = [];
     has status: str = "pending";
     has validation_results: dict = {};
+    has validation_model: Optional[Model] = None;
+    
+    """Perform intelligent security analysis on the edited/generated code, as a cybersecurity expert."""
+    def intelligent_security_scan(code_content: str, file_path: str, coder_context: str) -> SecurityScanResult by self.validation_model(method="ReAct");
     
     """Comprehensive validation phase with testing, linting, and security scanning."""
     def code_execution_validation(coder: Any, enable_security_scan: bool = True) -> Tuple[bool, Dict] {
@@ -759,36 +778,55 @@ node ValidatorNode {
         }
     }
     
-    """Run basic security scanning on the codebase"""
+    """Run AI-powered security scanning on the codebase"""
     def run_security_scan(coder: Any) -> Dict[str, Any] {
         print("Checking for security issues");
-        print("Ensuring code security");
-        
         security_issues = [];
         
         for fname in coder.abs_fnames {
-            if fname.endswith('.py') {
-                try {
-                    with open(fname, 'r') as f {
-                        content = f.read();
-                    }
-                    
-                    # Basic security checks
-                    if 'eval(' in content {
-                        security_issues.append(f"{fname}: Use of eval() detected - potential code injection risk");
-                    }
-                    if 'exec(' in content {
-                        security_issues.append(f"{fname}: Use of exec() detected - potential code injection risk");
-                    }
-                    if 'shell=True' in content {
-                        security_issues.append(f"{fname}: subprocess with shell=True detected - potential command injection risk");
-                    }
-                    if 'pickle.loads' in content {
-                        security_issues.append(f"{fname}: Use of pickle.loads detected - potential deserialization risk");
-                    }
-                } except Exception as e {
-                    print(f"Security scan failed for {fname}: {str(e)}");
+            try {
+                with open(fname, 'r', encoding='utf-8') as f {
+                    content = f.read();
                 }
+                if self.validation_model and len(content.strip()) > 0 {
+                    try {
+                        # Create context about the coder's recent work
+                        coder_context = f"Files being worked on: {list(coder.abs_fnames)[:5]}";
+                        print(f"Recent files in chat: {coder_context}");
+                        if hasattr(coder, 'cur_messages') and coder.cur_messages {
+                            recent_messages = coder.cur_messages[-3:];  # Last 3 messages
+                            coder_context += f"\nRecent conversation: {str(recent_messages)[:500]}...";
+                        }
+                        
+                        ai_scan_result = self.intelligent_security_scan(content, fname, coder_context);
+                        
+                        print(f"AI security scan result for {fname}: {ai_scan_result}");
+                        
+                        if ai_scan_result {
+                            # Add specific issues if found
+                            if hasattr(ai_scan_result, 'issues') and ai_scan_result.issues {
+                                for issue in ai_scan_result.issues {
+                                    security_issues.append(f"{fname}: {issue}");
+                                }
+                            }
+                            # Add recommendations as issues if risk level is medium or higher
+                            if hasattr(ai_scan_result, 'risk_level') and ai_scan_result.risk_level in ['medium', 'high', 'critical'] {
+                                if hasattr(ai_scan_result, 'recommendations') and ai_scan_result.recommendations {
+                                    for rec in ai_scan_result.recommendations {
+                                        security_issues.append(f"{fname}: Recommendation - {rec}");
+                                    }
+                                }
+                            }
+                        }
+                    } except Exception as e {
+                        print(f"AI security scan failed for {fname}: {str(e)}");
+                    }
+                }
+                
+            } except (UnicodeDecodeError, FileNotFoundError) as e {
+                print(f"Could not read file {fname}: {str(e)}");
+            } except Exception as e {
+                print(f"Security scan failed for {fname}: {str(e)}");
             }
         }
         
@@ -797,6 +835,69 @@ node ValidatorNode {
             'output': "\n".join(security_issues) if security_issues else "No security issues detected"
         };
     }
+    
+    # """Run comprehensive security scanning on the codebase using both traditional and AI-powered analysis"""
+    # def run_security_scan(coder: Any) -> Dict[str, Any] {
+    #     print("Checking for security issues");
+    #     print("Ensuring code security");
+        
+    #     security_issues = [];
+        
+    #     for fname in coder.abs_fnames {
+    #         if fname.endswith('.py') {
+    #             try {
+    #                 with open(fname, 'r') as f {
+    #                     content = f.read();
+    #                 }
+                    
+    #                 # Basic security checks
+    #                 if 'eval(' in content {
+    #                     security_issues.append(f"{fname}: Use of eval() detected - potential code injection risk");
+    #                 }
+    #                 if 'exec(' in content {
+    #                     security_issues.append(f"{fname}: Use of exec() detected - potential code injection risk");
+    #                 }
+    #                 if 'shell=True' in content {
+    #                     security_issues.append(f"{fname}: subprocess with shell=True detected - potential command injection risk");
+    #                 }
+    #                 if 'pickle.loads' in content {
+    #                     security_issues.append(f"{fname}: Use of pickle.loads detected - potential deserialization risk");
+    #                 }
+                    
+    #                 # AI-powered intelligent security analysis for recently edited files
+    #                 if self.validation_model and len(content.strip()) > 0 {
+    #                     try {
+    #                         # Create context about the coder's recent work
+    #                         coder_context = f"Files being worked on: {list(coder.abs_fnames)[:5]}";
+    #                         print(f"Recent files in chat: {coder_context}");
+    #                         if hasattr(coder, 'cur_messages') and coder.cur_messages {
+    #                             recent_messages = coder.cur_messages[-3:];  # Last 3 messages
+    #                             coder_context += f"\nRecent conversation: {str(recent_messages)[:500]}...";
+    #                         }
+                            
+    #                         ai_scan_result = self.intelligent_security_scan(content, fname, coder_context);
+                            
+    #                         if ai_scan_result and ai_scan_result.get('issues') {
+    #                             for issue in ai_scan_result['issues'] {
+    #                                 security_issues.append(f"{fname}: {issue}");
+    #                             }
+    #                         }
+    #                     } except Exception as e {
+    #                         print(f"AI security scan failed for {fname}: {str(e)}");
+    #                     }
+    #                 }
+                    
+    #             } except Exception as e {
+    #                 print(f"Security scan failed for {fname}: {str(e)}");
+    #             }
+    #         }
+    #     }
+        
+    #     return {
+    #         'passed': len(security_issues) == 0,
+    #         'output': "\n".join(security_issues) if security_issues else "No security issues detected"
+    #     };
+    # }
 }
 
 # Terminal node for end of graph traversal
@@ -839,7 +940,7 @@ walker GeniusAgent {
         # Create the workflow graph
         planning_node = PlanningNode(task=self.task, status="pending", planning_model=self.planning_model);
         editor_node = EditorNode(file_path="", content="", changes=[], status="pending", editor_model=self.editor_model);
-        validator_node = ValidatorNode(file_path="", issues=[], status="pending");
+        validator_node = ValidatorNode(file_path="", issues=[], status="pending", validation_model=self.editor_model);
         
         # Connect the workflow
         root ++> planning_node;
