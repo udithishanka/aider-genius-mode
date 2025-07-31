@@ -16,8 +16,10 @@ class Calculator:
 
 def get_number(prompt):
     while True:
+        value = input(prompt)
+        if value.lower() == 'q':
+            raise KeyboardInterrupt
         try:
-            value = input(prompt)
             num = float(value)
             return num
         except ValueError:
@@ -29,7 +31,12 @@ def main():
     print("Basic Calculator")
     print("Operations: +, -, *, /")
     while True:
-        a = get_number("Enter first number (or 'q' to quit): ")
+        try:
+            a = get_number("Enter first number (or 'q' to quit): ")
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+
         b = get_number("Enter second number: ")
         op = input("Enter operation (+, -, *, /): ").strip()
 
