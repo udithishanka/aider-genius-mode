@@ -23,30 +23,25 @@ def main():
     """
     print("Welcome to the Number Guessing Game!")
     while True:
-        # Select a random number between 1 and 100 for the current round
         number = random.randint(1, 100)
         print("I have selected a number between 1 and 100.")
 
         while True:
-            # Prompt user for a guess or to quit
             guess_str = input("Enter your guess (or 'q' to quit): ").strip()
             if guess_str.lower() == 'q':
                 print("Thanks for playing! Goodbye.")
                 return
 
-            # Validate input: must be an integer
             try:
                 guess = int(guess_str)
             except ValueError:
                 print("Invalid input. Please enter a valid integer.")
                 continue
 
-            # Validate guess range
             if guess < 1 or guess > 100:
                 print("Your guess must be between 1 and 100.")
                 continue
 
-            # Provide feedback on the guess
             if guess < number:
                 print("Too low. Try again.")
             elif guess > number:
@@ -55,7 +50,6 @@ def main():
                 print("Correct! You guessed the number.")
                 break
 
-        # Ask user if they want to play another round
         while True:
             play_again = input("Play again? (y/n): ").strip().lower()
             if play_again in ('y', 'n'):
