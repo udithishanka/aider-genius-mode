@@ -51,12 +51,12 @@ def main():
                 break
 
         while True:
-            play_again = input("Play again? (y/n): ").strip().lower()
-            if play_again in ('y', 'n'):
+            play_again = input("Play again? (yes/no): ").strip().lower()
+            if play_again in ('yes', 'no'):
                 break
-            print("Please enter 'y' or 'n'.")
+            print("Please enter 'yes' or 'no'.")
 
-        if play_again != 'y':
+        if play_again != 'yes':
             print("Thanks for playing! Goodbye.")
             break
 
