@@ -16,8 +16,11 @@ class Calculator:
 
 def get_number(prompt):
     while True:
+        value = input(prompt)
+        if value.lower() == 'q':
+            print("Goodbye!")
+            exit(0)
         try:
-            value = input(prompt)
             num = float(value)
             return num
         except ValueError:
